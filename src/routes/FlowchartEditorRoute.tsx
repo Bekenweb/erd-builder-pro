@@ -91,7 +91,7 @@ export function FlowchartEditorRoute() {
       activeFlowchartId={activeFlowchartId}
       activeFlowchart={activeFlowchart}
       handleFlowchartChange={handleFlowchartChange}
-      isReadOnly={isPublicView}
+      isReadOnly={isPublicView || ctx.isReadOnlyFile(activeFlowchart)}
       commentsEnabled={commentsEnabled}
       saveFlowchart={saveFlowchart}
       triggerDebouncedSync={triggerDebouncedSync}

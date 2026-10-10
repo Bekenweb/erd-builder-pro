@@ -21,7 +21,6 @@ export interface UseAutoSaveParams {
   broadcastMessage: (type: any, draftType: any, id: any) => void;
   isRefreshing: boolean;
   isERDItemLoading: boolean;
-  isDiagramsLoading: boolean;
   // For visibility change flush
   activeNoteUid: any;
   notes: any[];
@@ -52,7 +51,7 @@ export function useAutoSave(params: UseAutoSaveParams) {
     isAuthenticated, isGuest, view, isPublicView,
     activeDiagramId, nodes, edges, viewportRef,
     saveDiagram, setIsLocalSaving, triggerDebouncedSync, broadcastMessage,
-    isRefreshing, isERDItemLoading, isDiagramsLoading,
+    isRefreshing, isERDItemLoading,
     activeNoteUid, notes, saveNote,
     activeDrawingId, drawings, saveDrawing,
     activeFlowchartId, flowcharts, saveFlowchart,
@@ -124,9 +123,9 @@ export function useAutoSave(params: UseAutoSaveParams) {
     // 🛡️ Guard 1: Only trigger if saveCounter actually changed
     if (saveCounter === lastProcessedCounterRef.current) return;
 
-    // Keep the counter pending until the active diagram is fully ready. The
-    // loading flags are dependencies so this effect retries automatically.
-    if (!activeDiagramId || isRefreshing || isERDItemLoading || isDiagramsLoading) return;
+    // Keep the counter pending until the open diagram is ready. The sidebar list's
+    // loading state is unrelated: it may never load on a direct /diagrams/:id visit.
+    if (!activeDiagramId || isRefreshing || isERDItemLoading) return;
 
     if (isIncomingSyncRef.current) return;
     
@@ -137,39 +136,44 @@ export function useAutoSave(params: UseAutoSaveParams) {
       return;
     }
 
-    lastProcessedCounterRef.current = saveCounter;
-
-    if ((isAuthenticated || isGuest) && view === 'erd' && !isPublicView) {
-      setIsLocalSaving(true);
-
-      saveTimeoutRef.current = setTimeout(async () => {
-        if (Date.now() - lastSaveCallRef.current < 500) {
-          setIsLocalSaving(false);
-          return;
-        }
-
-        if (lastLoadedDiagramIdRef.current !== activeDiagramId) {
-          setIsLocalSaving(false);
-          return;
-        }
-
-        if (isRefreshing || isERDItemLoading || isDiagramsLoading) {
-          setIsLocalSaving(false);
-          return;
-        }
-
-        if (nodesRef.current.length === 0) {
-          setIsLocalSaving(false);
-          return;
-        }
-
-        await saveDiagram(nodesRef.current, edgesRef.current, viewportRef.current);
-        lastSaveCallRef.current = Date.now();
-        setIsLocalSaving(false);
-        triggerDebouncedSync();
-        broadcastMessage(BroadcastMessageType.DRAFT_UPDATED, DraftType.ERD, activeDiagramId);
-      }, 800);
+    if (!((isAuthenticated || isGuest) && view === 'erd' && !isPublicView)) {
+      lastProcessedCounterRef.current = saveCounter;
+      return;
     }
+
+    setIsLocalSaving(true);
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      // Only consume the counter once the timer really fires. If a dependency change
+      // cancels this timer first, the next run must still see the edit as pending.
+      lastProcessedCounterRef.current = saveCounter;
+
+      if (Date.now() - lastSaveCallRef.current < 500) {
+        setIsLocalSaving(false);
+        return;
+      }
+
+      if (lastLoadedDiagramIdRef.current !== activeDiagramId) {
+        setIsLocalSaving(false);
+        return;
+      }
+
+      if (isRefreshing || isERDItemLoading) {
+        setIsLocalSaving(false);
+        return;
+      }
+
+      if (nodesRef.current.length === 0) {
+        setIsLocalSaving(false);
+        return;
+      }
+
+      await saveDiagram(nodesRef.current, edgesRef.current, viewportRef.current);
+      lastSaveCallRef.current = Date.now();
+      setIsLocalSaving(false);
+      triggerDebouncedSync();
+      broadcastMessage(BroadcastMessageType.DRAFT_UPDATED, DraftType.ERD, activeDiagramId);
+    }, 800);
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -180,7 +184,7 @@ export function useAutoSave(params: UseAutoSaveParams) {
   }, [
     saveCounter, activeDiagramId, isAuthenticated, isGuest, view, saveDiagram,
     isPublicView, triggerDebouncedSync, broadcastMessage,
-    isRefreshing, isERDItemLoading, isDiagramsLoading,
+    isRefreshing, isERDItemLoading,
   ]);
 
   async function flushPendingSaves() {

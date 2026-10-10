@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { useEditor, EditorContent, ReactRenderer } from '@tiptap/react';
 import { mergeAttributes } from '@tiptap/core';
 import { DOMParser as ProseMirrorDOMParser } from '@tiptap/pm/model';
@@ -40,6 +40,7 @@ import {
   ExecutableCodeBlock,
   CompanionReference,
   NoteCommentAnchor,
+  NoteCommentDecorations,
 } from './editor/extensions';
 
 import { TextBubbleMenu } from './editor/menus/TextBubbleMenu';
@@ -60,6 +61,8 @@ import { FlowchartFromJsonDialog } from '@/components/ai/FlowchartFromJsonDialog
 import { CODE_BLOCK_CONVERT_EVENT, type CodeBlockConversionDetail } from './editor/extensions/ExecutableCodeBlock';
 import { openNotesCompanion } from './editor/extensions/CompanionReference';
 import { useNoteCommentAnchor } from '@/hooks/useNoteCommentAnchor';
+import { NoteCommentsLayer } from '@/components/notes/NoteCommentsLayer';
+import type { CommentFileRef } from '@/lib/fileComments';
 
 const MARKDOWN_PATTERNS = [
   /^\s{0,3}#{1,6}\s+\S/m,
@@ -125,9 +128,11 @@ interface TiptapEditorProps {
   compactLayout?: boolean;
   onRequestCompanion?: (type: 'erd' | 'flowchart' | 'drawing', editor: any, range: { from: number; to: number }) => void;
   onRequestComment?: (request: { id: string; beforeContent: string; content: string }) => Promise<boolean>;
+  /** The Note as a comment target; with onRequestComment it turns on Notion-style block comments. */
+  commentFile?: CommentFileRef | null;
 }
 
-export function TiptapEditor({ content, onChange, isReadOnly = false, disableAISelection = false, targetProjectId, noteTitle, compactLayout = false, onRequestCompanion, onRequestComment }: TiptapEditorProps) {
+export function TiptapEditor({ content, onChange, isReadOnly = false, disableAISelection = false, targetProjectId, noteTitle, compactLayout = false, onRequestCompanion, onRequestComment, commentFile = null }: TiptapEditorProps) {
   const { setSelectionText } = useAIAction();
   const {
     diagrams, flowcharts,
@@ -271,6 +276,9 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
     coords: { top: 0, left: 0, bottom: 0 }
   });
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [pageElement, setPageElement] = useState<HTMLDivElement | null>(null);
+  const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const [commentsWide, setCommentsWide] = useState(false);
 
   const extensions = React.useMemo(() => [
     TextStyle,
@@ -283,6 +291,7 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
       codeBlock: false,
     }),
     NoteCommentAnchor,
+    NoteCommentDecorations,
     ExecutableCodeBlock,
     CompanionReference,
     TrailingNode,
@@ -660,6 +669,18 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
     isReadOnly,
   });
 
+  const commentsOn = Boolean(commentFile && onRequestComment);
+  // Floating comment cards need room beside the text: below this width they become count buttons with a bottom sheet.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !commentsOn || compactLayout || typeof ResizeObserver === 'undefined') { setCommentsWide(false); return; }
+    const measure = () => setCommentsWide(container.clientWidth >= 900);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [commentsOn, compactLayout]);
+
   useEffect(() => {
     if (!editor) return;
 
@@ -792,12 +813,25 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
       />
 
       <div
-        ref={scrollContainerRef}
-        className={`flex-1 overflow-y-auto overflow-x-visible custom-scrollbar bg-background relative ${compactLayout ? 'px-2 sm:px-3' : 'px-4 sm:px-6 md:px-24'}`}
+        ref={(element) => { scrollContainerRef.current = element; setScrollElement(element); }}
+        className={`flex-1 overflow-y-auto overflow-x-visible custom-scrollbar bg-background relative ${compactLayout ? 'px-2 sm:px-3' : 'px-4 sm:px-6 md:px-12'}`}
       >
-        <div className={`mx-auto my-0 min-h-[calc(100vh-200px)] bg-card border-x border-b sm:border border-border/40 shadow-none rounded-none sm:rounded-xl relative tiptap-editor-lined ${compactLayout ? 'max-w-none sm:my-3 p-4 sm:p-7' : 'max-w-4xl sm:my-12 p-4 sm:p-16'}`}>
+        {commentsOn && editor && commentFile && onRequestComment && (
+          <NoteCommentsLayer
+            editor={editor}
+            page={pageElement}
+            container={scrollElement}
+            file={commentFile}
+            wide={commentsWide}
+            requestCommentAtBlock={requestCommentAtBlock}
+          />
+        )}
+        <div
+          ref={setPageElement}
+          className={`mx-auto my-0 min-h-[calc(100vh-200px)] bg-card border-x border-b sm:border border-border/40 shadow-none rounded-none sm:rounded-xl relative tiptap-editor-lined ${compactLayout ? 'max-w-none sm:my-3 p-4 sm:p-7' : 'max-w-4xl sm:my-6 p-4 sm:p-16'}`}
+        >
 
-          <DocumentOutline headings={headings} scrollToHeading={scrollToHeading} />
+          <DocumentOutline headings={headings} scrollToHeading={scrollToHeading} side={commentsOn && commentsWide ? 'left' : 'right'} />
 
           {editor && !isReadOnly && (
             <>
@@ -820,6 +854,7 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
               <EditorContent editor={editor} />
             </TableContextMenu>
           </div>
+
         </div>
       </div>
 

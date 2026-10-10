@@ -1116,3 +1116,18 @@ code:not(pre code) {
 .cm-editor .cm-content {
   font-family: 'JetBrains Mono', 'Menlo', 'Monaco', 'Consolas', monospace !important;
 }
+
+/* Block comments in Notes: idle is a faint highlight, hover or an open thread makes it stronger (COL-005). */
+.note-comment-block {
+  background: rgb(234 179 8 / 0.14);
+  text-decoration: underline;
+  text-decoration-color: rgb(234 179 8 / 0.45);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  border-radius: 2px;
+  transition: background-color 120ms ease, text-decoration-color 120ms ease;
+}
+.note-comment-block.is-hot {
+  background: rgb(234 179 8 / 0.32);
+  text-decoration-color: rgb(234 179 8 / 0.95);
+}

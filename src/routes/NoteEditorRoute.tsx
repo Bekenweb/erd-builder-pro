@@ -1,6 +1,8 @@
 import React, { Suspense, useEffect, useRef } from 'react';
 import { useWorkspace } from '@/providers/WorkspaceProvider';
-import { useParams } from 'react-router-dom';
+import { useOutletContext, useParams } from 'react-router-dom';
+import type { TeamsState } from '@/hooks/useTeams';
+import type { CommentFileRef } from '@/lib/fileComments';
 import { FileQuestion } from 'lucide-react';
 import { ProjectFileTabs } from '@/components/ProjectFileTabs';
 
@@ -8,6 +10,7 @@ const NotesView = React.lazy(() => import('@/components/views/NotesView').then(m
 
 export function NoteEditorRoute() {
   const ctx = useWorkspace();
+  const teamState = useOutletContext<TeamsState>();
   const { id } = useParams<{ id: string }>();
 
   const {
@@ -29,6 +32,14 @@ export function NoteEditorRoute() {
       handleNoteSelect(id);
     }
   }, [id, activeNoteUid, isPublicView, handleNoteSelect]);
+
+  const noteProjectId = activeNote?.project_id ?? activeNote?.projectId;
+  const noteProject = ctx.projects.find((project: any) => String(project.id) === String(noteProjectId));
+  const noteProjectTeamId = noteProject?.team_id ?? noteProject?.teamId;
+  const commentFile: CommentFileRef | null = !isPublicView && !ctx.isGuest && noteProjectTeamId && teamState?.activeTeamId
+    && String(noteProjectTeamId) === String(teamState.activeTeamId) && activeNote?.uid
+    ? { projectId: String(noteProjectId), teamId: String(teamState.activeTeamId), featureType: 'note', fileId: String(activeNote.uid) }
+    : null;
 
   if (!isPublicView && !activeNoteUid) {
     if (id && !processedUrlRef.current) {
@@ -83,7 +94,8 @@ export function NoteEditorRoute() {
         saveNote={saveNote}
         handleNoteChange={handleNoteChange}
         deleteNote={deleteNote}
-        isReadOnly={isPublicView}
+        isReadOnly={isPublicView || ctx.isReadOnlyFile(activeNote)}
+        commentFile={commentFile}
       />
     </Suspense>
     </div>

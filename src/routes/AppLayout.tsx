@@ -3,7 +3,7 @@ import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-
 import { cn } from '@/lib/utils';
 import type { Node, Edge } from '@xyflow/react';
 import type { Entity } from '@/types';
-import { Sparkles, Database, PanelRightClose, Pencil } from 'lucide-react';
+import { Sparkles, Database, PanelRightClose, Pencil, Eye, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 // Components
@@ -67,7 +67,7 @@ import { mergeDBMLCanvas } from '@/lib/dbml-canvas-merge';
 import { isRightPanelAvailable } from '@/lib/right-panel-availability';
 import { AIChatToggle } from '@/components/ai/AIChatToggle';
 import { getDbClientCache, setDbClientCache } from '@/hooks/useDataViewerHelpers';
-import { isFileCreator } from '@/lib/fileOwnership';
+import { isFileCreator, isFileViewer } from '@/lib/fileOwnership';
 import { getAppPageTitle } from '@/lib/app-page-title';
 
 // ── Inner component that uses AIAction context ──
@@ -355,6 +355,8 @@ function AppLayoutInner() {
   const activeDiagramIsProductionDb = isActiveDiagramContext
     && (activeDiagram?.source_type ?? activeDiagram?.sourceType) === 'production_db';
   const canDeleteActiveDocument = isFileCreator(activeDocument, user?.id, isGuest);
+  // Rename, share, import and history restore stay with the creator, like delete (DATA-004).
+  const canManageActiveDocument = !isFileViewer(activeDocument, user?.id, isGuest);
   const documentToDelete = tableDeleteDoc ?? activeDocument;
   const deletingDbClient = (documentToDelete?.source_type ?? documentToDelete?.sourceType) === 'production_db';
   const propertiesEntity = useMemo(() => {
@@ -456,6 +458,8 @@ function AppLayoutInner() {
 
       case 'diagram':
         if (!activeDiagram) return null;
+        // Only the AI chat panel reads this; building it walks every node and edge on each drag frame.
+        if (rightPanelMode !== 'chat') return null;
         const diagramContext = buildEntityContextText('diagram', {
           title: activeDiagram.name,
           nodes: nodes as any[],
@@ -491,18 +495,18 @@ function AppLayoutInner() {
       default:
         return null;
     }
-  }, [entityContext, activeNote, activeDiagram, activeFlowchart, activeDrawing, nodes, edges, searchParams]);
+  }, [entityContext, activeNote, activeDiagram, activeFlowchart, activeDrawing, nodes, edges, searchParams, rightPanelMode]);
 
   const isActiveDbClient = entityContext?.entityType === 'dbClient' || (isActiveDiagramContext
     && (activeDiagram?.source_type ?? activeDiagram?.sourceType) === 'production_db');
   const showAIChat = useMemo(() => {
     const cloudAiIncluded = !user?.isSso || teamState.activeTeam?.capabilities?.ai_assistant === true;
-    if (!cloudAiIncluded || entityContext === null || isPublicView || entityContext.entityType === 'drawing') return false;
+    if (!cloudAiIncluded || entityContext === null || isPublicView || !canManageActiveDocument || entityContext.entityType === 'drawing') return false;
     if (isActiveDbClient) return true;
     const resolvedTab = searchParams.get('tab') || 'erd';
     return resolvedTab === 'erd';
-  }, [entityContext, isPublicView, isActiveDbClient, searchParams, teamState.activeTeam, user?.isSso]);
-  const showDBMLPanel = isActiveDiagramContext && (activeDiagram?.source_type ?? activeDiagram?.sourceType) !== 'production_db';
+  }, [entityContext, isPublicView, canManageActiveDocument, isActiveDbClient, searchParams, teamState.activeTeam, user?.isSso]);
+  const showDBMLPanel = isActiveDiagramContext && canManageActiveDocument && (activeDiagram?.source_type ?? activeDiagram?.sourceType) !== 'production_db';
 
   // Derive project_id from the active entity. Discussions and Comments use the
   // same Project boundary for Cloud and licensed Self-host Teams.
@@ -702,10 +706,10 @@ function AppLayoutInner() {
     previousEntityContextKeyRef.current = contextKey;
 
     if (contextChanged) setPropertiesEntityId(null);
-    if (rightPanelMode === 'properties' && (!isActiveDiagramContext || contextChanged || activeDiagramIsProductionDb)) {
+    if (rightPanelMode === 'properties' && (!isActiveDiagramContext || contextChanged || activeDiagramIsProductionDb || !canManageActiveDocument)) {
       setRightPanelMode('closed');
     }
-  }, [entityContext, isActiveDiagramContext, rightPanelMode, activeDiagramIsProductionDb, setRightPanelMode]);
+  }, [entityContext, isActiveDiagramContext, rightPanelMode, activeDiagramIsProductionDb, canManageActiveDocument, setRightPanelMode]);
 
   useEffect(() => {
     if (rightPanelMode === 'properties' && selectedNodeId) setPropertiesEntityId(selectedNodeId);
@@ -787,13 +791,15 @@ function AppLayoutInner() {
           isOnline={isOnline}
           updatedAt={activeDocument?.updated_at}
           onDelete={canDeleteActiveDocument ? handleHeaderDelete : undefined}
-          onRename={handleHeaderRename}
+          onRename={canManageActiveDocument ? handleHeaderRename : undefined}
+          canManage={canManageActiveDocument}
+          onRefresh={refreshActiveDocument}
           onExportAll={activeDiagramIsProductionDb ? undefined : () => setIsExportAllOpen(true)}
           onExportSQL={handleHeaderExportSQL}
           onExportImage={handleHeaderExportImage}
           onExportMarkdown={handleExportMarkdown}
           onCopyMarkdown={handleCopyMarkdown}
-          onImportMarkdown={handleImportMarkdown}
+          onImportMarkdown={canManageActiveDocument ? handleImportMarkdown : undefined}
           onDuplicate={handleDuplicate}
           isGuest={isGuest}
           breadcrumbLabel={breadcrumbLabel}
@@ -802,6 +808,21 @@ function AppLayoutInner() {
           discussionPanel={discussionPanel}
         />
 
+        {!isPublicView && !canManageActiveDocument && (
+          <div className="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm" role="status">
+            <Eye className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="min-w-0 flex-1 text-muted-foreground">
+              View only · owned by {activeDocument?.user?.name || activeDocument?.user?.email || 'another member'}. Only the creator can edit this file.
+            </span>
+            <Button type="button" variant="outline" size="sm" disabled={isRefreshing} onClick={refreshActiveDocument}>
+              <RefreshCw className={`size-3.5 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+              Refresh
+            </Button>
+            {!isGuest && (
+              <Button type="button" variant="outline" size="sm" onClick={handleDuplicate}>Duplicate to edit</Button>
+            )}
+          </div>
+        )}
         <div className="relative flex flex-1 flex-col gap-4 p-4 pt-4 min-h-0 overflow-hidden" style={{ isolation: 'isolate' } as React.CSSProperties}>
           {isTeamScopeRefreshing ? (
             <div className="flex flex-1 flex-col items-center justify-center rounded-xl border bg-muted/10" role="status" aria-live="polite">
@@ -1006,12 +1027,13 @@ function AppLayoutInner() {
                 documentTitle={activeFileName || 'Untitled'}
                 onClose={() => setRightPanelMode('closed')}
                 onRestored={refreshActiveDocument}
+                canRestore={canManageActiveDocument}
               />
             ) : <div className="h-full flex flex-col">
               {/* ── Tab bar ── */}
               <div className="shrink-0 flex items-center border-b border-border bg-muted/20">
                 <div className="flex-1 flex">
-                  {isActiveDiagramContext && !isPublicView && !activeDiagramIsProductionDb && (
+                  {isActiveDiagramContext && !isPublicView && canManageActiveDocument && !activeDiagramIsProductionDb && (
                     <button
                       onClick={() => setRightPanelMode('properties')}
                       className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors ${

@@ -130,7 +130,7 @@ export function DiagramEditorRoute() {
   }
 
   const show = isPublicView ? publicData : activeDiagram;
-  const effectiveReadOnly = isPublicView || isProductionDb;
+  const effectiveReadOnly = isPublicView || isProductionDb || ctx.isReadOnlyFile(activeDiagram);
   const dataViewerStateKey = `${show?.uid || show?.id || ''}:${sourceConnectionId || ''}`;
   const projectId = activeDiagram?.project_id ?? activeDiagram?.projectId;
   const project = ctx.projects.find((item: any) => String(item.id) === String(projectId));
@@ -201,6 +201,8 @@ export function DiagramEditorRoute() {
           handleExportSQL={handleWorkspaceExportSQL}
           handleExportImage={handleWorkspaceExportImage}
           isReadOnly={effectiveReadOnly}
+          onRefresh={!isPublicView && !isProductionDb && ctx.isReadOnlyFile(activeDiagram) ? ctx.refreshActiveDocument : undefined}
+          isRefreshingDocument={ctx.isRefreshing}
           isDbClient={isProductionDb}
           comments={comments}
           sourceConnectionId={sourceConnectionId}

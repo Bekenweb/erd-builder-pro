@@ -14,6 +14,8 @@ export interface FlowchartNodeData extends Record<string, unknown> {
   groupId?: string;
   code?: string;
   _commentsEnabled?: boolean;
+  /** View-only file: no resize handles (DATA-004). */
+  _readOnly?: boolean;
 }
 
 const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: string, selected?: boolean }) => {
@@ -178,7 +180,7 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
       style={{ aspectRatio: data.shape === 'circle' ? '1 / 1' : 'auto' }}
     >
       <NodeResizer 
-        isVisible={selected || isHovered} 
+        isVisible={!data._readOnly && (selected || isHovered)} 
         keepAspectRatio={data.shape === 'circle'}
         minWidth={minDimensions.width}
         minHeight={minDimensions.height}

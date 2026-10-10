@@ -5,7 +5,8 @@ import type { ConnectionInfo } from "../../lib/db-connectors/types.js";
 import { encrypt } from "../../lib/crypto.js";
 import { captureEntityRevisionSafely } from "../../lib/entity-history.js";
 import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
-import { fileIdentifierWhere } from "../../lib/team-scope.js";
+import { creatorFileIdentifierWhere } from "../../lib/team-scope.js";
+import { versionedWhere } from "../../lib/versioned-write.js";
 import {
   uidWhereClause,
   dedupe,
@@ -15,6 +16,7 @@ import {
   upsertTableConstraints,
   upsertTableIndexes,
 } from "./service.js";
+import { scopeMetadataId } from "./metadata-id.js";
 
 // ── Save (entities/relationships/columns CRUD + versioning + audit) ──
 
@@ -40,7 +42,8 @@ export async function saveDiagram(
   }
 
   const currentDiagram = await prisma.diagram.findFirst({
-    where: fileIdentifierWhere(identifier, userId),
+    // Only the creator writes a Team file until per-file roles and realtime exist (DATA-004).
+    where: creatorFileIdentifierWhere(identifier, userId),
     select: {
       id: true, uid: true, version: true, updatedAt: true, name: true, data: true,
       sourceType: true, dbmlSource: true, viewportX: true, viewportY: true, viewportZoom: true,
@@ -61,12 +64,18 @@ export async function saveDiagram(
     currentDiagram.uid = backfillUid;
   }
 
-  // Version check
-  if (body.expectedVersion !== undefined && body.expectedVersion !== null) {
-    if (currentDiagram.version !== body.expectedVersion) {
+  // Claim the next version before any relational write: of two saves from the same base, exactly one matches this row.
+  const hasExpectedVersion = body.expectedVersion !== undefined && body.expectedVersion !== null;
+  if (hasExpectedVersion) {
+    const claimed = await prisma.diagram.updateMany({
+      where: versionedWhere(diagramId, body.expectedVersion),
+      data: { version: (body.expectedVersion as number) + 1 },
+    });
+    if (claimed.count !== 1) {
+      const latest = await prisma.diagram.findUnique({ where: { id: diagramId }, select: { version: true } });
       return {
         conflict: true,
-        currentVersion: currentDiagram.version,
+        currentVersion: latest?.version ?? currentDiagram.version,
         error: "Conflict: Diagram was modified. Please refresh and try again.",
       };
     }
@@ -117,11 +126,13 @@ export async function saveDiagram(
         await upsertColumns(allColumns);
       }
 
+      // Client ids are built from the table name only, and these tables use the id as a
+      // global primary key. Scope them to the entity so two diagrams never share a row.
       const allConstraints = dedupedEntities.flatMap(entity =>
-        (entity.constraints || []).map((constraint: any) => ({ ...constraint, _entity_id: entity.id }))
+        (entity.constraints || []).map((constraint: any) => ({ ...constraint, id: scopeMetadataId(entity.id, constraint.id), _entity_id: entity.id }))
       );
       const allIndexes = dedupedEntities.flatMap(entity =>
-        (entity.indexes || []).map((index: any) => ({ ...index, _entity_id: entity.id }))
+        (entity.indexes || []).map((index: any) => ({ ...index, id: scopeMetadataId(entity.id, index.id), _entity_id: entity.id }))
       );
       if (allConstraints.length > 0) await upsertTableConstraints(allConstraints);
       if (allIndexes.length > 0) await upsertTableIndexes(allIndexes);
@@ -203,7 +214,7 @@ export async function saveDiagram(
       viewportZoom: body.viewport?.zoom ?? currentDiagram.viewportZoom ?? 1.0,
       ...(mergedData !== undefined && { data: mergedData === null ? null : typeof mergedData === "string" ? mergedData : JSON.stringify(mergedData) }),
       ...(normalizedDbmlSource !== undefined && { dbmlSource: normalizedDbmlSource }),
-      ...((isDesktopMode() || isLocalPostgres()) && { version: (currentDiagram.version ?? 0) + 1 }),
+      ...(!hasExpectedVersion && (isDesktopMode() || isLocalPostgres()) && { version: (currentDiagram.version ?? 0) + 1 }),
     },
     select: { version: true },
   });
@@ -240,7 +251,7 @@ export async function saveDiagram(
 
   return {
     success: true,
-    version: updatedDiagram?.version ?? (currentDiagram.version ?? 0) + 1,
+    version: updatedDiagram?.version ?? (hasExpectedVersion ? (body.expectedVersion as number) + 1 : (currentDiagram.version ?? 0) + 1),
   };
 }
 
@@ -249,6 +260,7 @@ export async function saveDiagram(
 export async function getDiagramWithData(uid: string, userId: string) {
   const diagram = await prisma?.diagram.findFirst({
     where: uidWhereClause(uid, userId),
+  include: { user: { select: { name: true, email: true } } },
   });
   if (!diagram) return null;
 
@@ -276,19 +288,22 @@ export async function getDiagramWithData(uid: string, userId: string) {
   const relationships = await prisma!.relationship.findMany({
     where: { diagramId },
   });
-  const constraints = await prisma!.tableConstraint.findMany({
-    where: { entityId: { in: (await prisma!.entity.findMany({ where: { diagramId }, select: { id: true } })).map(entity => entity.id) } },
-  });
-  const indexes = await prisma!.tableIndex.findMany({
-    where: { entityId: { in: (await prisma!.entity.findMany({ where: { diagramId }, select: { id: true } })).map(entity => entity.id) } },
-  });
+  // One query per table kind (not per entity): 200 tables used to mean 200+ round trips on every load.
+  const entityIds = entities.map((entity: any) => entity.id);
+  const [constraints, indexes, allColumns] = await Promise.all([
+    prisma!.tableConstraint.findMany({ where: { entityId: { in: entityIds } } }),
+    prisma!.tableIndex.findMany({ where: { entityId: { in: entityIds } } }),
+    prisma!.column.findMany({ where: { entityId: { in: entityIds } }, orderBy: { sortOrder: "asc" } }),
+  ]);
+  const columnsByEntity = new Map<string, any[]>();
+  for (const column of allColumns) {
+    const list = columnsByEntity.get(column.entityId);
+    if (list) list.push(column);
+    else columnsByEntity.set(column.entityId, [column]);
+  }
 
-  const entitiesWithColumns = await Promise.all(
-    entities.map(async (entity: any) => {
-      const columns = await prisma!.column.findMany({
-        where: { entityId: entity.id },
-        orderBy: { sortOrder: "asc" },
-      });
+  const entitiesWithColumns = entities.map((entity: any) => {
+      const columns = columnsByEntity.get(entity.id) ?? [];
       // Prisma exposes the mapped database field as `enumValues`; the ERD
       // client uses `enum_values`. Without this normalization enum metadata
       // disappeared after a browser reload, so DBML could no longer emit it.
@@ -314,8 +329,7 @@ export async function getDiagramWithData(uid: string, userId: string) {
           numeric_scale: column.numericScale ?? column.numeric_scale ?? null,
         })),
       };
-    })
-  );
+  });
 
   return { ...diagram, entities: entitiesWithColumns, relationships };
 }

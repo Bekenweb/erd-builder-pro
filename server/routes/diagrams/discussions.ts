@@ -435,6 +435,11 @@ router.get("/markers", async (req, res) => {
             AND latest."feature_type" = $3 AND latest."file_id" = $4
             AND latest."anchor_type" = t."anchor_type" AND latest."anchor_id" = t."anchor_id"
           ORDER BY latest."updated_at" DESC, latest."id" DESC LIMIT 1) AS "status",
+        (SELECT latest."id" FROM "comment_threads" latest
+          WHERE latest."project_id" = $1 AND latest."team_id" = $2
+            AND latest."feature_type" = $3 AND latest."file_id" = $4
+            AND latest."anchor_type" = t."anchor_type" AND latest."anchor_id" = t."anchor_id"
+          ORDER BY latest."updated_at" DESC, latest."id" DESC LIMIT 1) AS "threadId",
         COUNT(m."id") AS "messageCount",
         SUM(CASE WHEN m."author_id" <> $5 AND (rd."last_read_at" IS NULL OR m."created_at" > rd."last_read_at") THEN 1 ELSE 0 END) AS "unreadCount"
       FROM "comment_threads" t
@@ -453,12 +458,23 @@ router.get("/markers", async (req, res) => {
       ) roots WHERE "rank" = 1
       ORDER BY "anchorType", "anchorId"
     `, ...scope);
+    const latestMessages = await prisma.$queryRawUnsafe<Array<Record<string, any>>>(`
+      SELECT "anchorType", "anchorId", "authorId", "authorName", "body", "createdAt" FROM (
+        SELECT t."anchor_type" AS "anchorType", t."anchor_id" AS "anchorId",
+          m."author_id" AS "authorId", COALESCE(NULLIF(m."author_name", ''), 'Team member') AS "authorName", m."body", m."created_at" AS "createdAt",
+          ROW_NUMBER() OVER (PARTITION BY t."anchor_type", t."anchor_id" ORDER BY m."created_at" DESC, m."id" DESC) AS "rank"
+        FROM "comment_threads" t JOIN "comment_messages" m ON m."thread_id" = t."id"
+        WHERE t."project_id" = $1 AND t."team_id" = $2 AND t."feature_type" = $3 AND t."file_id" = $4
+      ) latest WHERE "rank" = 1
+    `, ...scope);
     const rootsByAnchor = new Map(rootMessages.map((message) => [`${message.anchorType}:${message.anchorId}`, message]));
+    const latestByAnchor = new Map(latestMessages.map((message) => [`${message.anchorType}:${message.anchorId}`, message]));
     res.json({ markers: markers.map(marker => ({
       ...marker,
       messageCount: Number(marker.messageCount), unreadCount: Number(marker.unreadCount),
       replyCount: Math.max(Number(marker.messageCount) - 1, 0),
       rootMessage: rootsByAnchor.get(`${marker.anchorType}:${marker.anchorId}`) || null,
+      latestMessage: latestByAnchor.get(`${marker.anchorType}:${marker.anchorId}`) || null,
     })) });
   } catch (error) {
     handleError(res, error, "Failed to load comment markers");

@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma.js";
 import { captureEntityRevisionSafely } from "../../lib/entity-history.js";
 import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
 import { createPersonalFile } from "../../lib/personal-file-quota.js";
+import { versionedWhere } from "../../lib/versioned-write.js";
 import { creatorFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
 
 // Helper: build uid-or-id where clause that works with both UUIDs and numeric IDs
@@ -107,20 +108,33 @@ export async function createFlowchart(data: {
 export async function getFlowchart(uid: string, userId: string) {
   const flowchart = await prisma?.flowchart.findFirst({
     where: uidWhere(uid, userId),
+    include: { user: { select: { name: true, email: true } } },
   });
   return flowchart || null;
 }
 
 export async function updateFlowchart(
   uid: string, userId: string,
-  data: { title?: string; fcData?: string; projectId?: number | null }
+  data: { title?: string; fcData?: string; projectId?: number | null; expectedVersion?: number }
 ) {
   if (!prisma) throw new Error("Database connection not available");
   const existing = await prisma.flowchart.findFirst({
-    where: uidWhere(uid, userId),
+    where: creatorUidWhere(uid, userId),
   });
   if (!existing) return null;
 
+  const updatePayload: any = { updatedAt: new Date() };
+  if (isDesktopMode() || isLocalPostgres()) updatePayload.version = (data.expectedVersion ?? existing.version ?? 0) + 1;
+  if (data.title !== undefined) updatePayload.title = data.title;
+  if (data.fcData !== undefined) updatePayload.data = data.fcData;
+  if (data.projectId !== undefined) updatePayload.projectId = data.projectId;
+
+  // Conditional write: a save based on an older version than the stored one changes no row and becomes a 409.
+  const result = await prisma.flowchart.updateMany({ where: versionedWhere(existing.id, data.expectedVersion), data: updatePayload });
+  if (result.count !== 1) {
+    const latest = await prisma.flowchart.findUnique({ where: { id: existing.id }, select: { version: true } });
+    return { success: false, conflict: true, currentVersion: latest?.version ?? null };
+  }
   await captureEntityRevisionSafely({
     entityType: "flowcharts",
     entityId: existing.id,
@@ -128,14 +142,8 @@ export async function updateFlowchart(
     snapshot: { title: existing.title, data: existing.data ?? "", project_id: existing.projectId ?? null },
   });
 
-  const updatePayload: any = { updatedAt: new Date() };
-  if (isDesktopMode() || isLocalPostgres()) updatePayload.version = (existing.version ?? 0) + 1;
-  if (data.title !== undefined) updatePayload.title = data.title;
-  if (data.fcData !== undefined) updatePayload.data = data.fcData;
-  if (data.projectId !== undefined) updatePayload.projectId = data.projectId;
-
-  const updated = await prisma.flowchart.update({ where: { id: existing.id }, data: updatePayload, select: { version: true, updatedAt: true } });
-  return { success: true, version: updated.version, updatedAt: updated.updatedAt };
+  const updated = await prisma.flowchart.findUnique({ where: { id: existing.id }, select: { version: true, updatedAt: true } });
+  return { success: true, version: updated?.version, updatedAt: updated?.updatedAt };
 }
 
 export async function softDeleteFlowchart(uid: string, userId: string) {
@@ -188,7 +196,7 @@ export async function updateFlowchartShare(
   data: { isPublic: boolean; shareToken?: string | null; expiryDate?: Date | null }
 ) {
   const current = await prisma?.flowchart.findFirst({
-    where: uidWhere(uid, userId),
+    where: creatorUidWhere(uid, userId),
   });
   if (!current) return null;
 

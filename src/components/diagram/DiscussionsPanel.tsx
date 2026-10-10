@@ -1043,66 +1043,46 @@ export function DiscussionsPanel({
         }
       />
       <PopoverContent
-        side={isCommentRail ? "left" : "bottom"}
-        align={isCommentRail ? "start" : "end"}
+        side="left"
+        align="start"
         sideOffset={8}
-        className={cn("flex h-[min(42rem,calc(100svh-5rem))] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0", isCommentRail ? "w-[min(22rem,calc(100vw-1rem))]" : "w-[min(28rem,calc(100vw-1rem))]")}
+        className="flex h-[min(42rem,calc(100svh-5rem))] w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0"
         aria-describedby={descriptionId}
       >
-        <div className="shrink-0 border-b border-border px-4 py-3">
-          {activeTab === "discussions" ? (
-            <div className="grid grid-cols-[minmax(0,1fr)_7rem_minmax(0,1fr)] items-center gap-2 max-sm:grid-cols-[2rem_minmax(0,1fr)_auto] max-sm:grid-rows-[auto_auto]">
-              {screen === "list" ? <span aria-hidden="true" className="size-7 max-sm:col-start-1 max-sm:row-start-2" /> : (
-                <Button type="button" variant="ghost" size="icon-xs" className="justify-self-start max-sm:col-start-1 max-sm:row-start-2" aria-label="Back to discussion list" onClick={() => setScreen("list")}>
-                  <ArrowLeft aria-hidden="true" className="size-4" />
-                </Button>
-              )}
-              <div className="col-start-2 row-start-1 min-w-0 max-w-28 justify-self-center text-center max-sm:col-span-3 max-sm:col-start-1 max-sm:max-w-none max-sm:justify-self-stretch">
-                <h2 className="truncate text-base font-semibold">{title}</h2>
-                <p id={descriptionId} className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
-              </div>
-              <div className="col-start-3 row-start-1 flex min-w-0 items-center justify-self-end gap-0.5 max-sm:col-start-2 max-sm:col-span-2 max-sm:row-start-2">
-                {screen === "thread" && activeThread && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" aria-label="Discussion actions"><MoreHorizontal aria-hidden="true" className="size-4" /></Button>} />
-                    <DropdownMenuContent align="end" className="w-44" positionerClassName="z-[210]">
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem onClick={() => void changeStatus()} disabled={sending}>
-                          {activeThread.status === "open" ? <Check aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
-                          {activeThread.status === "open" ? "Resolve" : "Reopen"}
-                        </DropdownMenuItem>
-                        {activeThread.canDelete && (
-                          <DropdownMenuItem variant="destructive" onClick={() => setPendingDelete({ type: "thread", threadId: activeThread.id })}>
-                            <Trash2 aria-hidden="true" />
-                            Delete Thread
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-                <Button type="button" variant="ghost" size="icon-xs" aria-label="Close discussions" onClick={() => setOpen(false)}>
-                  <X aria-hidden="true" className="size-4" />
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                {screen !== "list" && (
-                  <Button variant="ghost" size="sm" className="mb-2 -ml-2 min-h-11 px-2" onClick={() => setScreen("list")}>
-                    <ArrowLeft aria-hidden="true" />
-                    Back to list
-                  </Button>
-                )}
-                <h2 className="truncate text-sm font-semibold">{title}</h2>
-                <p id={descriptionId} className="mt-1 truncate text-xs text-muted-foreground">{description}</p>
-              </div>
-              <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label="Close comments" onClick={() => setOpen(false)}>
-                <X aria-hidden="true" />
+        <div className="shrink-0 border-b border-border px-3 py-2">
+          <div className="flex items-center gap-1">
+            {screen !== "list" && (
+              <Button type="button" variant="ghost" size="icon-xs" aria-label="Back to list" onClick={() => setScreen("list")}>
+                <ArrowLeft aria-hidden="true" className="size-4" />
               </Button>
+            )}
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-sm font-semibold">{title}</h2>
+              <p id={descriptionId} className="truncate text-xs text-muted-foreground">{description}</p>
             </div>
-          )}
+            {activeTab === "discussions" && screen === "thread" && activeThread && (
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" aria-label="Discussion actions"><MoreHorizontal aria-hidden="true" className="size-4" /></Button>} />
+                <DropdownMenuContent align="end" className="w-44" positionerClassName="z-[210]">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem onClick={() => void changeStatus()} disabled={sending}>
+                      {activeThread.status === "open" ? <Check aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+                      {activeThread.status === "open" ? "Resolve" : "Reopen"}
+                    </DropdownMenuItem>
+                    {activeThread.canDelete && (
+                      <DropdownMenuItem variant="destructive" onClick={() => setPendingDelete({ type: "thread", threadId: activeThread.id })}>
+                        <Trash2 aria-hidden="true" />
+                        Delete Thread
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button type="button" variant="ghost" size="icon-xs" aria-label={`Close ${activeTab}`} onClick={() => setOpen(false)}>
+              <X aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="shrink-0 border-b border-border/70 px-3 py-2">

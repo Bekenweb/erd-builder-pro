@@ -6,7 +6,6 @@ import { randomUUID } from "crypto";
 import { getStorageClientForUser } from "../../lib/storage.js";
 import { isDesktopMode } from "../../lib/config.js";
 import { currentTeamScope, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
-import { canManageTeam } from "../teams/service.js";
 
 // ── List ──
 
@@ -144,7 +143,8 @@ export async function createProject(name: string, userId: string) {
 export async function updateProject(projectId: number, userId: string, name: string) {
   const project = await prisma?.project.findFirst({ where: { id: projectId, ...projectScopeWhere(userId) }, select: { id: true, name: true, userId: true, teamId: true } });
   if (project?.name.trim().toLowerCase() === "uncategorized" || name.trim().toLowerCase() === "uncategorized") return { success: false };
-  if (!project || (project.teamId && project.userId !== userId && !(await canManageTeam(project.teamId, userId)))) return { success: false };
+  // Only the creator renames a project, Team Managers included, until per-file roles exist (DATA-004).
+  if (!project || (project.teamId && project.userId !== userId)) return { success: false };
   await prisma?.project.updateMany({
     where: { id: projectId, ...projectScopeWhere(userId) },
     data: { name },

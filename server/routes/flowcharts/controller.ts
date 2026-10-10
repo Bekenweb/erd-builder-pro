@@ -1,4 +1,5 @@
 import { Request as ExpressRequest, Response as ExpressResponse } from "express";
+import { parseExpectedVersion } from "../../lib/versioned-write.js";
 import { supabase } from "../../lib/config.js";
 import { handleError } from "../../lib/utils.js";
 import { resolveNewFileProjectId, resolveOwnedProjectId } from "../../lib/security.js";
@@ -62,9 +63,10 @@ export async function update(req: ExpressRequest, res: ExpressResponse): Promise
     }
 
     const result = await fcService.updateFlowchart(req.params.uid, userId, {
-      title, fcData: data, projectId: resolvedProjectId,
+      title, fcData: data, projectId: resolvedProjectId, expectedVersion: parseExpectedVersion(req.body.expectedVersion),
     });
     if (!result) { res.status(404).json({ error: "Flowchart not found" }); return; }
+    if (result.conflict) { res.status(409).json(result); return; }
     res.json(result);
   } catch (err: any) {
     handleError(res, err, "Failed to update flowchart");

@@ -3,14 +3,17 @@ import { localPersistence } from '../lib/localPersistence';
 import { DraftType } from '../types';
 import { toast } from 'sonner';
 import { apiFetch } from '../lib/api';
-import { getCachedDiagramVersion, updateCachedDiagramVersion, clearCachedDiagramVersion, refreshDiagramVersion } from '../lib/diagramVersioning';
+import { getCachedDiagramVersion, updateCachedDiagramVersion, clearCachedDiagramVersion, documentVersionKey } from '../lib/diagramVersioning';
 import { edgeToRelationship } from '../lib/diagram-payload';
+import { mergeServerCommentAnchors } from '../lib/noteAnchorMerge';
 
 export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean = false) {
   const [isSyncing, setIsSyncing] = useState(false);
   const isSyncingRef = useRef(false);
   const [syncError, setSyncError] = useState<boolean>(false);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Drafts the server rejected as based on an old version. They wait for the user's choice instead of being re-sent.
+  const conflictedDraftsRef = useRef(new Set<string>());
 
   const healDraftData = useCallback((draftData: string, type: DraftType): string => {
     if (!draftData) return draftData;
@@ -82,6 +85,9 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
     }
   }, []);
 
+  const baseVersion = async (draft: { type: DraftType; id: string | number }): Promise<number | undefined> =>
+    (await getCachedDiagramVersion(documentVersionKey(draft.type, draft.id))) ?? undefined;
+
   const syncDrafts = useCallback(async () => {
     if (!isAuthenticated || !navigator.onLine || isGuestCheck()) return;
     
@@ -96,6 +102,7 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
 
     try {
       let hasMoreToSync = true;
+      const mergedAnchorKeys = new Set<string>();
       while (hasMoreToSync) {
         syncNeededRef.current = false;
         const pendingSyncs = await localPersistence.getAllPendingSyncs();
@@ -103,6 +110,7 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
         if (pendingSyncs.length > 0) {
           
           for (const draft of pendingSyncs) {
+            if (conflictedDraftsRef.current.has(`${draft.type}:${draft.id}`)) continue;
             try {
               let endpoint = '';
               let body = {};
@@ -120,7 +128,7 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
 
               if (draft.type === DraftType.NOTES) {
                 endpoint = `/api/notes/${draft.id}`;
-                body = { title: parsedData.title, content: parsedData.content, project_id: parsedData.project_id };
+                body = { title: parsedData.title, content: parsedData.content, project_id: parsedData.project_id, expectedVersion: await baseVersion(draft) };
               } else if (draft.type === DraftType.ERD) {
                 endpoint = `/api/diagrams/save/${draft.id}`;
                 
@@ -154,10 +162,10 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
                 }
               } else if (draft.type === DraftType.FLOWCHART) {
                 endpoint = `/api/flowcharts/${draft.id}`;
-                body = { title: parsedData.title, data: parsedData.data || draft.data, project_id: parsedData.project_id };
+                body = { title: parsedData.title, data: parsedData.data || draft.data, project_id: parsedData.project_id, expectedVersion: await baseVersion(draft) };
               } else if (draft.type === DraftType.DRAWINGS) {
                 endpoint = `/api/drawings/${draft.id}`;
-                body = { title: parsedData.title, data: parsedData.data || draft.data, project_id: parsedData.project_id };
+                body = { title: parsedData.title, data: parsedData.data || draft.data, project_id: parsedData.project_id, expectedVersion: await baseVersion(draft) };
               }
 
               if (endpoint) {
@@ -173,29 +181,39 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
                   break;
                 }
 
+                if (res.status === 409 && draft.type === DraftType.NOTES && await mergeNewCommentAnchors(draft, parsedData, mergedAnchorKeys)) {
+                  // Another member only added comment anchors: they were copied onto this draft, which is sent again next round.
+                  syncNeededRef.current = true;
+                  continue;
+                }
+
                 if (res.status === 409) {
-                  try {
-                    const errorData = await res.json();
-                    await clearCachedDiagramVersion(draft.id);
-                    if (draft.type === DraftType.ERD && errorData.currentVersion !== undefined) {
-                      await updateCachedDiagramVersion(draft.id, errorData.currentVersion);
-                    }
-                  } catch (e) {}
+                  // Someone else saved first. Re-sending would overwrite their work, so keep the draft and ask (DATA-004).
+                  const key = `${draft.type}:${draft.id}`;
+                  if (!conflictedDraftsRef.current.has(key)) {
+                    conflictedDraftsRef.current.add(key);
+                    announceConflict(draft.type, draft.id, conflictedDraftsRef.current);
+                  }
                   continue;
                 }
 
                 if (res.status === 404) {
-                  console.warn(`[SyncService] Draft ${draft.type}#${draft.id} returned 404 — marking as synced (data preserved in IndexedDB)`);
-                  await localPersistence.markSynced(draft.type, draft.id, lastUpdated);
+                  // Removed, moved to another Team, or access revoked: keep the draft pending so the work is not lost silently.
+                  console.warn(`[SyncService] ${draft.type}#${draft.id} returned 404; kept as a pending draft`);
+                  setSyncError(true);
                   continue;
                 }
 
                 if (res.ok) {
                   const responseData = await res.json();
-                  if (draft.type === DraftType.ERD && responseData.version !== undefined) {
-                    await updateCachedDiagramVersion(draft.id, responseData.version);
+                  if (responseData.version !== undefined && responseData.version !== null) {
+                    await updateCachedDiagramVersion(documentVersionKey(draft.type, draft.id), responseData.version);
                   }
                   await localPersistence.markSynced(draft.type, draft.id, lastUpdated);
+                } else {
+                  // 401/403/5xx: the draft stays pending in IndexedDB; surface it instead of failing silently.
+                  console.warn(`[SyncService] ${draft.type}#${draft.id} not saved (HTTP ${res.status}); kept as a pending draft`);
+                  setSyncError(true);
                 }
               }
             } catch (err) {
@@ -248,28 +266,9 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
     }
   }, [syncDrafts, isAuthenticated, isGuest]);
 
-  const checkAndClearStaleDrafts = useCallback(async (type: DraftType, cloudItems: { id: string | number, updated_at: string | number }[]) => {
-    if (!isAuthenticated || isGuest) return;
-
-    try {
-      const pendingSyncs = await localPersistence.getAllPendingSyncs();
-      const relevantSyncs = pendingSyncs.filter(d => d.type === type);
-      
-      for (const draft of relevantSyncs) {
-        const cloudItem = cloudItems.find(item => String(item.id) === String(draft.id));
-        if (cloudItem) {
-          const cloudTime = new Date(cloudItem.updated_at).getTime();
-          const localTime = draft.updated_at;
-
-          if (cloudTime > localTime) {
-            await localPersistence.deleteDraft(type, draft.id);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Error in checkAndClearStaleDrafts:", err);
-    }
-  }, [isAuthenticated, isGuest]);
+  // A pending draft is unsaved work, so a newer server timestamp (compared across two clocks) never discards it.
+  // Real conflicts are found by version when the draft is synced.
+  const checkAndClearStaleDrafts = useCallback(async (_type: DraftType, _cloudItems: { id: string | number, updated_at: string | number }[]) => {}, []);
 
   // One-time migration: Clear legacy 'diagram' drafts from IndexedDB
   useEffect(() => {
@@ -297,4 +296,52 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
   }, [isAuthenticated, isGuest]);
 
   return { syncDrafts, triggerDebouncedSync, isSyncing, syncError, healDraftData, checkAndClearStaleDrafts, hasPendingSyncs, refreshPendingStatus };
+}
+
+
+/** Tell the user a save was refused and let them load the newer version; their local copy is kept as a recovery draft. */
+function announceConflict(type: DraftType, id: string | number, conflicts: Set<string>) {
+  toast.error('This file was changed by someone else', {
+    id: `conflict:${type}:${id}`,
+    duration: Infinity,
+    description: 'Your unsaved changes were not sent so nothing is overwritten.',
+    action: {
+      label: 'Load latest',
+      onClick: async () => {
+        const draft = await localPersistence.getDraft(type, id);
+        if (draft) await localPersistence.saveDraft(type, `${id}:recovery`, draft.data, false);
+        await localPersistence.deleteDraft(type, id);
+        await clearCachedDiagramVersion(documentVersionKey(type, id));
+        conflicts.delete(`${type}:${id}`);
+        window.dispatchEvent(new CustomEvent('document-conflict-resolved'));
+      },
+    },
+  });
+}
+
+
+/**
+ * A Note save refused with 409 may only be missing comment anchors that another member added. In that case copy them
+ * onto the creator's draft and adopt the server version. Returns false (a real conflict) when anchors cannot be placed.
+ */
+async function mergeNewCommentAnchors(
+  draft: { id: string | number },
+  parsedData: any,
+  attempted: Set<string>,
+): Promise<boolean> {
+  try {
+    const res = await apiFetch(`/api/notes/${draft.id}`);
+    if (!res.ok) return false;
+    const server = await res.json();
+    const key = `${draft.id}:${server.version}`;
+    if (attempted.has(key) || typeof server.content !== 'string' || typeof parsedData?.content !== 'string') return false;
+    attempted.add(key);
+    const merged = mergeServerCommentAnchors(server.content, parsedData.content);
+    if (merged === null || !Number.isInteger(server.version)) return false;
+    await updateCachedDiagramVersion(documentVersionKey(DraftType.NOTES, draft.id), server.version);
+    await localPersistence.saveDraft(DraftType.NOTES, draft.id, JSON.stringify({ ...parsedData, content: merged }));
+    return true;
+  } catch {
+    return false;
+  }
 }

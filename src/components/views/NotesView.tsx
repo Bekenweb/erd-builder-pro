@@ -1,3 +1,4 @@
+import type { CommentFileRef } from '@/lib/fileComments';
 import React, { useEffect, useState, useRef } from 'react';
 import NotesEditor from '../NotesEditor';
 import { DiffPreviewModal } from '@/components/modals/DiffPreviewModal';
@@ -31,6 +32,8 @@ interface NotesViewProps {
   handleNoteChange: (content: string) => void;
   deleteNote: (uid: string) => Promise<void>;
   isReadOnly?: boolean;
+  /** The Note as a comment target (project, Team, uid); omitted when comments are unavailable. */
+  commentFile?: CommentFileRef | null;
   isLoading?: boolean;
 }
 
@@ -41,6 +44,7 @@ export const NotesView = React.memo(({
   handleNoteChange,
   deleteNote,
   isReadOnly = false,
+  commentFile = null,
   isLoading = false
 }: NotesViewProps) => {
   const { registerContentHandler } = useAIAction();
@@ -305,6 +309,7 @@ export const NotesView = React.memo(({
             isReadOnly={isReadOnly}
             compactLayout={companionPanes.length > 0}
             onRequestComment={handleCommentRequest}
+            commentFile={commentFile}
             onRequestCompanion={(type, editor, range) => {
               setSelectedCompanionUid('');
               setCompanionRequest({ type, editor, range });

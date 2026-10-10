@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect, useMemo, CSSProperties } from 'react';
+import React, { memo, useState, useEffect, useMemo, useCallback, CSSProperties } from 'react';
 import { Handle, Position, NodeProps, Node, useUpdateNodeInternals } from '@xyflow/react';
 import { MoreHorizontal, Pencil, Trash2, Database, AlertTriangle, Copy, MessageSquare } from 'lucide-react';
 import { Entity } from '../../types';
@@ -18,7 +18,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useWorkspace } from '../../providers/WorkspaceProvider';
+import { useEntityNodeContext } from '@/contexts/EntityNodeContext';
 import { useAIAction } from '@/contexts/AIActionContext';
 import { CommentMarker, useERDComments } from './ERDComments';
 
@@ -124,11 +124,11 @@ const EntityColumnRow = memo(({ col, borderColor, typeColor, hideHandles, onDoub
 
 const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
   const comments = useERDComments();
-  const { isPublicView, duplicateEntity, activeDocument, setSelectedNodeId } = useWorkspace();
+  const { isReadOnly: isViewOnly, duplicateEntity, sourceType, setSelectedNodeId } = useEntityNodeContext();
   const { setRightPanelMode } = useAIAction();
   const isNotesCompanion = Boolean((data as any)._notesCompanion);
-  const isProductionDb = !isNotesCompanion && (activeDocument?.source_type === 'production_db' || !!(data as any).isReadOnly);
-  const isReadOnly = isPublicView || !!data.isDiffMode || isProductionDb;
+  const isProductionDb = !isNotesCompanion && (sourceType === 'production_db' || !!(data as any).isReadOnly);
+  const isReadOnly = isViewOnly || !!data.isDiffMode || isProductionDb;
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const updateNodeInternals = useUpdateNodeInternals();
@@ -142,7 +142,8 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
     updateNodeInternals(id);
   }, [id, columnOrderHash, updateNodeInternals]);
 
-  const handleEdit = (e: React.MouseEvent) => {
+  // Stable handlers: EntityColumnRow is memoized, so a new function per render would re-render every row.
+  const handleEdit = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (isReadOnly) return;
@@ -152,21 +153,21 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
     }
     setSelectedNodeId(id);
     setRightPanelMode('properties');
-  };
+  }, [isReadOnly, isNotesCompanion, id, setSelectedNodeId, setRightPanelMode]);
 
-  const handleDeleteClick = (e: React.MouseEvent) => {
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (isReadOnly) return;
     setShowDeleteConfirm(true);
-  };
+  }, [isReadOnly]);
 
-  const handleDuplicate = (e: React.MouseEvent) => {
+  const handleDuplicate = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (isReadOnly) return;
     duplicateEntity(id);
-  };
+  }, [isReadOnly, duplicateEntity, id]);
 
   const handleComment = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -223,7 +224,7 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
     [data.columns]
   );
 
-  const contextMenuEnabled = !isPublicView && !isNotesCompanion && !isProductionDb && !data.isDiffMode;
+  const contextMenuEnabled = !isViewOnly && !isNotesCompanion && !isProductionDb && !data.isDiffMode;
 
   const table = (
     <div className="relative">

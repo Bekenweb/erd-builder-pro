@@ -190,21 +190,23 @@ export function WorkspaceSidebarPanel({
                               }
                             />
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => {
-                                setRenameValue(project.name)
-                                setEditingProject(project)
-                              }}>
-                                <Pencil className="size-3.5" aria-hidden="true" />
-                                Rename
-                              </DropdownMenuItem>
-                              {isFileCreator(project, user?.id, user?.id === "guest") && (
+                              {isFileCreator(project, user?.id, user?.id === "guest") ? (
                                 <>
+                                  <DropdownMenuItem onClick={() => {
+                                    setRenameValue(project.name)
+                                    setEditingProject(project)
+                                  }}>
+                                    <Pencil className="size-3.5" aria-hidden="true" />
+                                    Rename
+                                  </DropdownMenuItem>
                                   <DropdownMenuSeparator />
                                   <DropdownMenuItem onClick={() => setDeletingProject(project)}>
                                     <Trash2 className="size-3.5 text-destructive" aria-hidden="true" />
                                     Delete
                                   </DropdownMenuItem>
                                 </>
+                              ) : (
+                                <DropdownMenuItem disabled>Only the creator can rename or delete</DropdownMenuItem>
                               )}
                             </DropdownMenuContent>
                           </DropdownMenu>

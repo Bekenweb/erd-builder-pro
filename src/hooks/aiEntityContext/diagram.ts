@@ -72,9 +72,10 @@ export function buildDiagramContext(data: EntityContextData): string | null {
     return `  - ${d.name} (${cols})`;
   }).join('\n');
 
+  const nodeById = new Map<string, any>(entityNodes.map((n: any) => [n.id, n]));
   const relLines = (data.edges || []).map((e: any) => {
-    const sNode = entityNodes.find((n: any) => n.id === e.source);
-    const tNode = entityNodes.find((n: any) => n.id === e.target);
+    const sNode = nodeById.get(e.source);
+    const tNode = nodeById.get(e.target);
     if (!sNode || !tNode) return '';
 
     const sourceColId = extractHandleId(e.sourceHandle);

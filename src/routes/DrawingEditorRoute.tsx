@@ -92,7 +92,7 @@ export function DrawingEditorRoute() {
       saveDrawing={saveDrawing}
       handleDrawingChange={handleDrawingChange}
       deleteDrawing={deleteDrawing}
-      isReadOnly={isPublicView}
+      isReadOnly={isPublicView || ctx.isReadOnlyFile(activeDrawing)}
       commentsEnabled={commentsEnabled}
     />
   );

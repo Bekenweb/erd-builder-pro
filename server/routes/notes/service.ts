@@ -5,6 +5,7 @@ import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
 import { createPersonalFile } from "../../lib/personal-file-quota.js";
 import { creatorFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
 import { replacePrivateStorageUrls } from "../../lib/storage-access.js";
+import { versionedWhere } from "../../lib/versioned-write.js";
 
 // Helper: build uid-or-id where clause that works with both UUIDs and numeric IDs
 // Prisma's @prisma/adapter-pg throws "Argument id is missing" when id is NaN
@@ -105,13 +106,14 @@ export async function createNote(data: {
 export async function getNote(uid: string, userId: string) {
   const note = await prisma?.note.findFirst({
     where: uidWhere(uid, userId),
+    include: { user: { select: { name: true, email: true } } },
   });
   return note || null;
 }
 
 export async function updateNote(
   uid: string, userId: string,
-  data: { title?: string; content?: string; projectId?: number | null; historySource?: "autosave" | "manual" | "mcp"; expectedContentHash?: string; expectedContent?: string }
+  data: { title?: string; content?: string; projectId?: number | null; historySource?: "autosave" | "manual" | "mcp"; expectedContentHash?: string; expectedContent?: string; expectedVersion?: number }
 ) {
   if (!prisma) throw new Error("Database connection not available");
   const existing = await prisma.note.findFirst({
@@ -121,9 +123,11 @@ export async function updateNote(
 
   const existingContent = replacePrivateStorageUrls(existing.content ?? "", {});
   const content = data.content === undefined ? undefined : replacePrivateStorageUrls(data.content, {});
+  // Other Team members read a Note; the only write they make is adding a comment anchor (DATA-004).
+  if (existing.userId !== userId && !isCommentAnchorOnlyChange(existingContent, content, data)) return null;
 
   const updatePayload: any = { updatedAt: new Date() };
-  if (isDesktopMode() || isLocalPostgres()) updatePayload.version = (existing.version ?? 0) + 1;
+  if (isDesktopMode() || isLocalPostgres()) updatePayload.version = (data.expectedVersion ?? existing.version ?? 0) + 1;
   if (data.title !== undefined) updatePayload.title = data.title;
   if (content !== undefined) updatePayload.content = content;
   if (data.projectId !== undefined) updatePayload.projectId = data.projectId;
@@ -163,10 +167,34 @@ export async function updateNote(
     return { success: true, version: updated?.version, updatedAt: updated?.updatedAt };
   }
 
+  const result = await prisma.note.updateMany({ where: versionedWhere(existing.id, data.expectedVersion), data: updatePayload });
+  if (result.count !== 1) {
+    const latest = await prisma.note.findUnique({ where: { id: existing.id }, select: { version: true } });
+    return { success: false, conflict: true, currentVersion: latest?.version ?? null };
+  }
   await revision();
 
-  const updated = await prisma.note.update({ where: { id: existing.id }, data: updatePayload, select: { version: true, updatedAt: true } });
-  return { success: true, version: updated.version, updatedAt: updated.updatedAt };
+  const updated = await prisma.note.findUnique({ where: { id: existing.id }, select: { version: true, updatedAt: true } });
+  return { success: true, version: updated?.version, updatedAt: updated?.updatedAt };
+}
+
+const COMMENT_ANCHOR_ATTRIBUTE = /\sdata-comment-anchor-id="([^"]*)"/g;
+
+function withoutCommentAnchors(html: string) {
+  return html.replace(COMMENT_ANCHOR_ATTRIBUTE, "").replace(/\s*class=""\s*/g, "").replace(/<p><\/p>/g, "").replace(/\s+/g, " ").trim();
+}
+
+/** True when the request only adds comment anchors to an unchanged Note, guarded by the comment path's content check. */
+export function isCommentAnchorOnlyChange(
+  existingContent: string,
+  content: string | undefined,
+  data: { title?: string; projectId?: number | null; expectedContentHash?: string; expectedContent?: string },
+) {
+  if (content === undefined || data.title !== undefined || data.projectId !== undefined) return false;
+  if (data.expectedContentHash === undefined && data.expectedContent === undefined) return false;
+  if (withoutCommentAnchors(existingContent) !== withoutCommentAnchors(content)) return false;
+  const kept = new Set(Array.from(content.matchAll(COMMENT_ANCHOR_ATTRIBUTE), match => match[1]));
+  return Array.from(existingContent.matchAll(COMMENT_ANCHOR_ATTRIBUTE)).every(match => kept.has(match[1]));
 }
 
 export async function softDeleteNote(uid: string, userId: string) {
@@ -238,7 +266,7 @@ export async function updateNoteShare(
   data: { isPublic: boolean; shareToken?: string | null; expiryDate?: Date | null }
 ) {
   const current = await prisma?.note.findFirst({
-    where: uidWhere(uid, userId),
+    where: creatorUidWhere(uid, userId),
   });
   if (!current) return null;
 

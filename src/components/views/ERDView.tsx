@@ -107,6 +107,9 @@ interface ERDViewProps {
   dedupeEdgesByRelation?: (edges: Edge[]) => Edge[];
   onEdgeReconnect?: (edges: Edge[]) => void;
   comments?: ERDCommentsConfig;
+  /** Refresh button next to Jump to Table, shown for view-only Team files (DATA-004). */
+  onRefresh?: () => void;
+  isRefreshingDocument?: boolean;
 }
 
 
@@ -151,6 +154,8 @@ const ERDViewComponent = ({
   dedupeEdgesByRelation,
   onEdgeReconnect,
   comments,
+  onRefresh,
+  isRefreshingDocument = false,
 }: ERDViewProps) => {
 
   const { registerContentHandler, setSelectionText, setActionContextData, setRightPanelMode } = useAIAction();
@@ -690,6 +695,11 @@ const ERDViewComponent = ({
         <div className="absolute top-6 inset-x-0 z-10 flex justify-center pointer-events-none">
           <div className="flex items-center gap-1.5 p-1.5 bg-background/95 backdrop-blur-md border border-border/50 rounded-2xl shadow-2xl pointer-events-auto max-w-[95vw] overflow-x-auto no-scrollbar">
             <JumpToNode nodes={nodes} label="Table" />
+            {onRefresh && (
+              <Button onClick={onRefresh} disabled={isRefreshingDocument} variant="outline" size="icon" className="h-9 w-9 border-border hover:bg-muted bg-muted/50 cursor-pointer" title="Refresh to the latest version" aria-label="Refresh to the latest version">
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingDocument ? 'animate-spin' : ''}`} />
+              </Button>
+            )}
             {!isReadOnly && <div className="w-px h-6 bg-border mx-0.5" />}
             
             {!isReadOnly && (
@@ -704,7 +714,7 @@ const ERDViewComponent = ({
                 <span className="hidden sm:inline">Import SQL</span>
               </Button>
             )}
-            {!isProductionDb && (
+            {!isProductionDb && !isReadOnly && (
               <Button onClick={() => setRightPanelMode('dbml')} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer">
                 <Database className="w-3.5 h-3.5 sm:mr-1.5" />
                 <span className="hidden sm:inline">DBML</span>
@@ -716,10 +726,10 @@ const ERDViewComponent = ({
                 <span className="hidden sm:inline">Repository</span>
               </Button>
             )}
-            <Button onClick={onAutoLayout} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer">
+            {!isReadOnly && <Button onClick={onAutoLayout} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer">
               <LayoutGrid className="w-3.5 h-3.5 sm:mr-1.5" />
               <span className="hidden sm:inline">Auto Layout</span>
-            </Button>
+            </Button>}
 
             {isProductionDb && (
               <Button onClick={handleSync} variant="outline" size="sm" className="h-9 px-3 border-amber-500/50 hover:bg-amber-500/10 bg-amber-500/5 text-amber-600 dark:text-amber-400 text-xs font-semibold cursor-pointer" disabled={isSyncing}>
@@ -973,6 +983,7 @@ export const ERDView = React.memo(ERDViewComponent, (prev, next) => {
     edgesEqual(prev.edges, next.edges) &&
     (shouldIgnoreLoading || prev.isLoading === next.isLoading) &&
     prev.isReadOnly === next.isReadOnly &&
+    prev.onRefresh === next.onRefresh && prev.isRefreshingDocument === next.isRefreshingDocument &&
     prev.comments?.projectId === next.comments?.projectId && prev.comments?.teamId === next.comments?.teamId && prev.comments?.fileId === next.comments?.fileId && prev.comments?.userId === next.comments?.userId &&
     sameViewport &&
     prev.selectedNodeId === next.selectedNodeId &&
