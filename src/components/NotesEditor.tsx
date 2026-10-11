@@ -1,3 +1,4 @@
+import type { CommentFileRef } from '@/lib/fileComments';
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import TiptapEditor from './TiptapEditor';
@@ -11,9 +12,10 @@ interface NotesEditorProps {
   compactLayout?: boolean;
   onRequestCompanion?: (type: 'erd' | 'flowchart' | 'drawing', editor: any, range: { from: number; to: number }) => void;
   onRequestComment?: (request: { id: string; beforeContent: string; content: string }) => Promise<boolean>;
+  commentFile?: CommentFileRef | null;
 }
 
-export default function NotesEditor({ note, onSave, onChange, onDelete, isReadOnly = false, compactLayout = false, onRequestCompanion, onRequestComment }: NotesEditorProps) {
+export default function NotesEditor({ note, onSave, onChange, onDelete, isReadOnly = false, compactLayout = false, onRequestCompanion, onRequestComment, commentFile }: NotesEditorProps) {
   const handleContentChange = (newContent: string) => {
     // This is called by TiptapEditor whenever its internal content changes.
     // We simply pass it up to the parent (NotesView) for saving.
@@ -36,6 +38,7 @@ export default function NotesEditor({ note, onSave, onChange, onDelete, isReadOn
           compactLayout={compactLayout}
           onRequestCompanion={onRequestCompanion}
           onRequestComment={onRequestComment}
+          commentFile={commentFile}
         />
       </div>
     </div>

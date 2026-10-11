@@ -104,3 +104,8 @@ export async function refreshDiagramVersion(diagramId: number | string): Promise
     return null;
   }
 }
+
+/** ERD versions are cached by plain id (legacy); every other document type is prefixed so ids never collide. */
+export function documentVersionKey(draftType: string, id: number | string): string {
+  return draftType === 'erd' ? String(id) : `${draftType}:${id}`;
+}

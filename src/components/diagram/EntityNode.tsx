@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect, useMemo, CSSProperties } from 'react';
+import React, { memo, useState, useEffect, useMemo, useCallback, CSSProperties } from 'react';
 import { Handle, Position, NodeProps, Node, useUpdateNodeInternals } from '@xyflow/react';
 import { MoreHorizontal, Pencil, Trash2, Database, AlertTriangle, Copy, MessageSquare } from 'lucide-react';
 import { Entity } from '../../types';
@@ -18,9 +18,9 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { useWorkspace } from '../../providers/WorkspaceProvider';
+import { useEntityNodeContext } from '@/contexts/EntityNodeContext';
 import { useAIAction } from '@/contexts/AIActionContext';
-import { CommentMarker, useERDComments } from './ERDComments';
+import { CommentMarker, OPEN_COMMENT_EVENT, useERDComments } from './ERDComments';
 
 import {
   AlertDialog,
@@ -124,11 +124,11 @@ const EntityColumnRow = memo(({ col, borderColor, typeColor, hideHandles, onDoub
 
 const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
   const comments = useERDComments();
-  const { isPublicView, duplicateEntity, activeDocument, setSelectedNodeId } = useWorkspace();
+  const { isReadOnly: isViewOnly, duplicateEntity, sourceType, setSelectedNodeId } = useEntityNodeContext();
   const { setRightPanelMode } = useAIAction();
   const isNotesCompanion = Boolean((data as any)._notesCompanion);
-  const isProductionDb = !isNotesCompanion && (activeDocument?.source_type === 'production_db' || !!(data as any).isReadOnly);
-  const isReadOnly = isPublicView || !!data.isDiffMode || isProductionDb;
+  const isProductionDb = !isNotesCompanion && (sourceType === 'production_db' || !!(data as any).isReadOnly);
+  const isReadOnly = isViewOnly || !!data.isDiffMode || isProductionDb;
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const updateNodeInternals = useUpdateNodeInternals();
@@ -142,7 +142,8 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
     updateNodeInternals(id);
   }, [id, columnOrderHash, updateNodeInternals]);
 
-  const handleEdit = (e: React.MouseEvent) => {
+  // Stable handlers: EntityColumnRow is memoized, so a new function per render would re-render every row.
+  const handleEdit = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (isReadOnly) return;
@@ -152,26 +153,26 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
     }
     setSelectedNodeId(id);
     setRightPanelMode('properties');
-  };
+  }, [isReadOnly, isNotesCompanion, id, setSelectedNodeId, setRightPanelMode]);
 
-  const handleDeleteClick = (e: React.MouseEvent) => {
+  const handleDeleteClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (isReadOnly) return;
     setShowDeleteConfirm(true);
-  };
+  }, [isReadOnly]);
 
-  const handleDuplicate = (e: React.MouseEvent) => {
+  const handleDuplicate = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (isReadOnly) return;
     duplicateEntity(id);
-  };
+  }, [isReadOnly, duplicateEntity, id]);
 
   const handleComment = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    window.dispatchEvent(new CustomEvent('erd-comment-open-request', { detail: { type: 'table', id } }));
+    window.dispatchEvent(new CustomEvent(OPEN_COMMENT_EVENT, { detail: { type: 'table', id } }));
   };
 
   const confirmDelete = () => {
@@ -223,7 +224,8 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
     [data.columns]
   );
 
-  const contextMenuEnabled = !isPublicView && !isNotesCompanion && !isProductionDb && !data.isDiffMode;
+  // View-only members keep the menu for its Comment item; the edit items below stay behind !isReadOnly.
+  const contextMenuEnabled = (!isViewOnly || Boolean(comments)) && !isNotesCompanion && !isProductionDb && !data.isDiffMode;
 
   const table = (
     <div className="relative">
@@ -257,7 +259,7 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
             )}
           </div>
           
-          {!isReadOnly && !isNotesCompanion && (
+          {!isNotesCompanion && (!isReadOnly || (isViewOnly && Boolean(comments) && !data.isDiffMode && !isProductionDb)) && (
             <DropdownMenu>
               <DropdownMenuTrigger 
                 className="nodrag nopan p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
@@ -274,19 +276,33 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >
-                <DropdownMenuItem onClick={handleEdit} className="cursor-pointer hover:bg-muted focus:bg-muted">
-                  <Pencil className="w-4 h-4 mr-2" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDuplicate} className="cursor-pointer hover:bg-muted focus:bg-muted">
-                  <Copy className="w-4 h-4 mr-2" />
-                  Duplicate
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-border" />
-                <DropdownMenuItem onClick={handleDeleteClick} className="cursor-pointer text-destructive focus:text-destructive hover:bg-destructive/10 focus:bg-destructive/10">
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete Table
-                </DropdownMenuItem>
+                {!isReadOnly && (
+                  <>
+                    <DropdownMenuItem onClick={handleEdit} className="cursor-pointer hover:bg-muted focus:bg-muted">
+                      <Pencil className="w-4 h-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleDuplicate} className="cursor-pointer hover:bg-muted focus:bg-muted">
+                      <Copy className="w-4 h-4 mr-2" />
+                      Duplicate
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {comments && (
+                  <DropdownMenuItem onClick={handleComment} className="cursor-pointer hover:bg-muted focus:bg-muted">
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Comment
+                  </DropdownMenuItem>
+                )}
+                {!isReadOnly && (
+                  <>
+                    <DropdownMenuSeparator className="bg-border" />
+                    <DropdownMenuItem onClick={handleDeleteClick} className="cursor-pointer text-destructive focus:text-destructive hover:bg-destructive/10 focus:bg-destructive/10">
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Table
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

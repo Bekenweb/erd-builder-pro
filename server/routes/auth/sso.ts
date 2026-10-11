@@ -182,6 +182,11 @@ export async function finishSso(req: Request, res: Response): Promise<void> {
   const expectedState = req.cookies[STATE_COOKIE] as string | undefined;
   const verifier = req.cookies[VERIFIER_COOKIE] as string | undefined;
   clear();
+  // The user pressed "Cancel" on the SaaS consent screen; that is not an invalid response.
+  if (req.query.error === "access_denied" && state && state === expectedState) {
+    redirectError(res, config.appUrl, "Sign-in was cancelled");
+    return;
+  }
   if (!code || !state || !expectedState || state !== expectedState || !verifier) {
     redirectError(res, config.appUrl, "Invalid or expired SSO response");
     return;

@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { prisma } from "../../lib/prisma.js";
 import { toProjectId } from "../../lib/utils.js";
 import { resolveOwnedProjectId } from "../../lib/security.js";
-import { fileIdentifierWhere, fileScopeWhere } from "../../lib/team-scope.js";
+import { creatorFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere } from "../../lib/team-scope.js";
 import { getRulesOwnerId } from "../ai-rules/service.js";
 
 // ── Sessions ──
@@ -74,7 +74,7 @@ export async function updateSession(
   if (!prisma) throw new Error("Database connection not available");
 
   const existing = await prisma.aiChatSession.findFirst({
-    where: fileIdentifierWhere(uid, userId),
+    where: creatorFileIdentifierWhere(uid, userId),
     select: { id: true },
   });
   if (!existing) return null;
@@ -91,7 +91,7 @@ export async function updateSession(
 
 export async function deleteSession(uid: string, userId: string) {
   const session = await prisma?.aiChatSession.findFirst({
-    where: fileIdentifierWhere(uid, userId),
+    where: creatorFileIdentifierWhere(uid, userId),
   });
   if (!session) return null;
 
@@ -131,7 +131,8 @@ async function resolveSessionId(sessionId: string, userId: string): Promise<numb
   const sid = String(sessionId);
   const numericId = /^\d+$/.test(sid) ? Number(sid) : undefined;
   const session = await prisma?.aiChatSession.findFirst({
-    where: { AND: [fileScopeWhere(userId), { OR: [
+    // Members read each other's Team chat sessions; only the session creator adds messages (DATA-004).
+    where: { AND: [fileScopeWhere(userId), { userId }, { OR: [
         { uid: sid },
         ...(numericId !== undefined ? [{ id: numericId }] : []),
       ] }] },

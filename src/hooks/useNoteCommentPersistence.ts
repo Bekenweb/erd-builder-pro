@@ -8,7 +8,8 @@ import { useWorkspace } from '@/providers/WorkspaceContext';
 type CommentRequest = { id: string; beforeContent: string; content: string };
 
 function normalizeNoteHtml(html: string) {
-  return html.replace(/\s*class=""\s*/g, '').replace(/<p><\/p>/g, '').replace(/\s+/g, ' ').trim();
+  // Whitespace at a tag edge is not content: a split block can differ from the saved copy only by a leading space.
+  return html.replace(/\s*class=""\s*/g, '').replace(/<p><\/p>/g, '').replace(/\s+/g, ' ').replace(/>\s+/g, '>').replace(/\s+</g, '<').trim();
 }
 
 function normalizePrivateAssetUrls(html: string) {
@@ -43,7 +44,8 @@ export function useNoteCommentPersistence({ noteUid, note, isReadOnly, handleNot
   const { projects, isGuest, syncDrafts, cancelPendingNoteSaves } = useWorkspace();
   const projectId = note?.project_id ?? note?.projectId;
   const project = projects.find(item => String(item.id) === String(projectId) || String(item.uid) === String(projectId));
-  const enabled = !isGuest && !isReadOnly && Boolean(project?.team_id ?? project?.teamId);
+  // Comments are allowed on view-only Team Notes; a public link has no project in this list, so it stays disabled.
+  const enabled = !isGuest && Boolean(project?.team_id ?? project?.teamId);
 
   const persistCommentAnchor = useCallback(async ({ id, beforeContent, content }: CommentRequest) => {
     if (!enabled || !noteUid || !note) return false;
@@ -85,9 +87,8 @@ export function useNoteCommentPersistence({ noteUid, note, isReadOnly, handleNot
 
       const saved = await saveNote({ ...note, content }, { syncPending: false });
       if (saved === false) toast.error('Anchor tersimpan di server, tetapi cache lokal gagal diperbarui.');
-      window.dispatchEvent(new CustomEvent('project-comment-open-request', {
-        detail: { featureType: 'note', fileId: String(noteUid), type: 'block', id },
-      }));
+      // The block's comment card opens its composer (NoteCommentsLayer); the Discussions panel is not involved.
+      window.dispatchEvent(new CustomEvent('note-comment-compose', { detail: { fileId: String(noteUid), anchorId: id } }));
       return true;
     } catch {
       toast.error('Tidak dapat menambahkan komentar ke Note.');

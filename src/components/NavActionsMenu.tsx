@@ -8,7 +8,8 @@ import {
   Download,
   Upload,
   BarChart3,
-  History
+  History,
+  RefreshCw
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -24,7 +25,7 @@ import { Button } from "./ui/button";
 import { toast } from "sonner";
 
 interface NavActionsMenuProps {
-  onShare: () => void;
+  onShare?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
   onDuplicate?: () => void;
@@ -42,6 +43,8 @@ interface NavActionsMenuProps {
   noteContent?: string;
   historyEnabled?: boolean;
   onOpenHistory?: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 
@@ -63,6 +66,8 @@ export const NavActionsMenu = ({
   noteContent,
   historyEnabled = false,
   onOpenHistory,
+  onRefresh,
+  isRefreshing = false,
 }: NavActionsMenuProps) => {
 
   const stripHtml = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&[^;]+;/g, ' ').trim();
@@ -122,14 +127,16 @@ export const NavActionsMenu = ({
             </DropdownMenuItem>
           ) : (
             <>
-              <DropdownMenuItem 
-                disabled={!isOnline} 
-                onClick={onShare}
-                className="gap-2 cursor-pointer"
-              >
-                <Share2 className="h-4 w-4 text-muted-foreground" />
-                <span>Share</span>
-              </DropdownMenuItem>
+              {onShare && (
+                <DropdownMenuItem 
+                  disabled={!isOnline} 
+                  onClick={onShare}
+                  className="gap-2 cursor-pointer"
+                >
+                  <Share2 className="h-4 w-4 text-muted-foreground" />
+                  <span>Share</span>
+                </DropdownMenuItem>
+              )}
               
               {isPublic && (
                 <DropdownMenuItem 
@@ -144,14 +151,23 @@ export const NavActionsMenu = ({
 
               <DropdownMenuSeparator />
 
-              <DropdownMenuItem 
-                disabled={!isOnline} 
-                onClick={onRename}
-                className="gap-2 cursor-pointer"
-              >
-                <Edit2 className="h-4 w-4 text-muted-foreground" />
-                <span>Edit</span>
-              </DropdownMenuItem>
+              {onRename && (
+                <DropdownMenuItem 
+                  disabled={!isOnline} 
+                  onClick={onRename}
+                  className="gap-2 cursor-pointer"
+                >
+                  <Edit2 className="h-4 w-4 text-muted-foreground" />
+                  <span>Edit</span>
+                </DropdownMenuItem>
+              )}
+
+              {onRefresh && (
+                <DropdownMenuItem disabled={!isOnline || isRefreshing} onClick={() => onRefresh()} className="gap-2 cursor-pointer">
+                  <RefreshCw className={`h-4 w-4 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <span>Refresh</span>
+                </DropdownMenuItem>
+              )}
 
               {onOpenHistory && (
                 <DropdownMenuItem disabled={!historyEnabled} onClick={() => onOpenHistory()} className="gap-2 cursor-pointer">
@@ -226,21 +242,23 @@ export const NavActionsMenu = ({
                   <span>Copy Markdown</span>
                 </div>
               </DropdownMenuItem>
-              <DropdownMenuItem 
-                disabled={!isOnline} 
-                onClick={onImportMarkdown}
-                className="gap-2 cursor-pointer flex items-center"
-              >
-                <div className="flex items-center gap-2 flex-1">
-                  <Upload className="h-4 w-4 text-muted-foreground" />
-                  <span>Import</span>
-                </div>
-                <div className="ml-auto flex items-center gap-0.5 text-muted-foreground/60">
-                  <span className="text-[13px] font-sans leading-none">⌘</span>
-                  <span className="text-[13px] font-sans leading-none">⇧</span>
-                  <span className="text-[15px] font-mono font-bold mt-0.5">I</span>
-                </div>
-              </DropdownMenuItem>
+              {onImportMarkdown && (
+                <DropdownMenuItem 
+                  disabled={!isOnline} 
+                  onClick={onImportMarkdown}
+                  className="gap-2 cursor-pointer flex items-center"
+                >
+                  <div className="flex items-center gap-2 flex-1">
+                    <Upload className="h-4 w-4 text-muted-foreground" />
+                    <span>Import</span>
+                  </div>
+                  <div className="ml-auto flex items-center gap-0.5 text-muted-foreground/60">
+                    <span className="text-[13px] font-sans leading-none">⌘</span>
+                    <span className="text-[13px] font-sans leading-none">⇧</span>
+                    <span className="text-[15px] font-mono font-bold mt-0.5">I</span>
+                  </div>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem 
                 disabled={!isOnline} 
                 onClick={onExportMarkdown}

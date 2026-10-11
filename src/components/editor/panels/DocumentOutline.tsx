@@ -28,58 +28,54 @@ function buildNumberedHeadings(headings: HeadingInfo[]): { heading: HeadingInfo;
   });
 }
 
-export function DocumentOutline({ headings, scrollToHeading }: DocumentOutlineProps) {
+export function DocumentOutline({ headings, scrollToHeading, side = 'right' }: DocumentOutlineProps & { side?: 'left' | 'right' }) {
   const numbered = useMemo(() => buildNumberedHeadings(headings), [headings]);
   const [calculationHelpOpen, setCalculationHelpOpen] = React.useState(false);
 
   return (
     <>
-      <div className="absolute -right-14 top-0 h-full hidden md:block z-40">
-        <div className="sticky top-1/2 -translate-y-1/2">
+      {/* Only the buttons take pointer events: this full-height column must not cover the comment margin. */}
+      <div className={`pointer-events-none absolute ${side === 'left' ? '-left-14' : '-right-14'} top-0 h-full hidden md:block z-40`}>
+        <div className="pointer-events-auto sticky top-1/2 -translate-y-1/2">
           <TooltipProvider delay={0}>
             <HoverCard openDelay={100} closeDelay={300}>
-              <Tooltip>
-                <TooltipTrigger render={<div className="flex items-center justify-center" />}>
-                  <HoverCardTrigger asChild>
-                    <Button
-                      variant="secondary"
-                      size="icon"
-                      className="h-10 w-10 rounded-full shadow-lg border border-border/50 bg-background hover:bg-accent transition-colors"
-                    >
-                      <ListTree className="w-5 h-5 text-muted-foreground" />
-                    </Button>
-                  </HoverCardTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>Document Outline</p>
-                </TooltipContent>
-              </Tooltip>
+              <HoverCardTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  aria-label="Document Outline"
+                  className="h-8 w-8 rounded-full shadow-md border border-border/50 bg-background hover:bg-accent transition-colors"
+                >
+                  <ListTree className="w-4 h-4 text-muted-foreground" />
+                </Button>
+              </HoverCardTrigger>
 
               <HoverCardContent
-                side="left"
+                side={side === 'left' ? 'right' : 'left'}
                 align="center"
-                sideOffset={15}
-                className="w-75 bg-popover/95 backdrop-blur-xl border-border rounded-lg p-5 shadow-2xl"
+                sideOffset={10}
+                collisionPadding={8}
+                className="z-[120] w-60 bg-popover/95 backdrop-blur-xl border-border rounded-lg p-3 shadow-xl"
               >
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b pb-2">
-                    <h4 className="text-sm font-semibold tracking-tight">Navigation</h4>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between border-b pb-1.5">
+                    <div className="text-xs font-semibold tracking-tight">Navigation</div>
                     <span className="text-[10px] text-muted-foreground uppercase font-medium">Headings</span>
                   </div>
 
                   {numbered.length > 0 ? (
-                    <div className="flex flex-col gap-1 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
+                    <div className="flex flex-col gap-0.5 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
                       {numbered.map(({ heading, number }, i) => (
                         <button
                           key={`${heading.pos}-${i}`}
                           onClick={() => scrollToHeading(heading.pos)}
                           className={cn(
-                            "flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-foreground",
+                            "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-foreground",
                             heading.level === 1 ? "text-primary font-bold bg-primary/5" :
-                              heading.level === 2 ? "pl-5 text-foreground/70" :
-                                heading.level === 3 ? "pl-7 text-foreground/60" :
-                                  heading.level === 4 ? "pl-9 text-foreground/50" :
-                                    "pl-11 text-foreground/40"
+                              heading.level === 2 ? "pl-4 text-foreground/70" :
+                                heading.level === 3 ? "pl-6 text-foreground/60" :
+                                  heading.level === 4 ? "pl-8 text-foreground/50" :
+                                    "pl-10 text-foreground/40"
                           )}
                         >
                           <span className="shrink-0 whitespace-nowrap tabular-nums text-muted-foreground/50">{number}.</span>
@@ -88,7 +84,7 @@ export function DocumentOutline({ headings, scrollToHeading }: DocumentOutlinePr
                       ))}
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground/50">
+                    <div className="flex flex-col items-center justify-center py-3 text-center text-muted-foreground/50">
                       <p className="text-xs italic">No headings found</p>
                     </div>
                   )}
@@ -99,17 +95,17 @@ export function DocumentOutline({ headings, scrollToHeading }: DocumentOutlinePr
 
           <TooltipProvider delay={0}>
             <Tooltip>
-              <TooltipTrigger render={<div className="flex items-center justify-center mt-3" />}>
+              <TooltipTrigger render={<div className="flex items-center justify-center mt-2" />}>
                 <Button
                   variant="secondary"
                   size="icon"
                   onClick={() => setCalculationHelpOpen(true)}
-                  className="h-10 w-10 rounded-full shadow-lg border border-border/50 bg-background hover:bg-accent transition-colors"
+                  className="h-8 w-8 rounded-full shadow-md border border-border/50 bg-background hover:bg-accent transition-colors"
                 >
-                  <Info className="w-5 h-5 text-muted-foreground" />
+                  <Info className="w-4 h-4 text-muted-foreground" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">
+              <TooltipContent side="top">
                 <p>Calculation Guide</p>
               </TooltipContent>
             </Tooltip>

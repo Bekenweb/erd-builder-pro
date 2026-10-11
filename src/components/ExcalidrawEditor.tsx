@@ -311,11 +311,14 @@ export default function ExcalidrawEditor({ drawing, onSave, onChange, onDelete, 
       return;
     }
 
-    const selectedIds = commentsEnabled && !isReadOnly && !compact
+    const selectedIds = commentsEnabled && !compact
       ? Object.keys(appState?.selectedElementIds || {}).filter(id => appState.selectedElementIds[id] && elements.some(element => element.id === id && element.isDeleted !== true))
       : [];
     const nextSelectedId = selectedIds[0] ?? null;
     setSelectedCommentElementId(current => current === nextSelectedId ? current : nextSelectedId);
+
+    // A view-only file reports no scene: panning must not mark it as edited or queue a save (DATA-004).
+    if (isReadOnly) return;
 
     // Store the latest scene data for batched emission via rAF
     latestSceneRef.current = { elements: elements as any[], appState, files };
@@ -360,10 +363,11 @@ export default function ExcalidrawEditor({ drawing, onSave, onChange, onDelete, 
               <MainMenu.DefaultItems.Help />
           </MainMenu>}
         </Excalidraw>
-        {commentsEnabled && !isReadOnly && !compact && excalidrawAPI && (
+        {/* commentsEnabled is never set on a public link, so read-only here means a Team viewer who still sees threads. */}
+        {commentsEnabled && !compact && excalidrawAPI && (
           <DrawingCommentMarkers api={excalidrawAPI} containerRef={commentMarkerContainerRef} />
         )}
-        {commentsEnabled && !isReadOnly && !compact && selectedCommentElementId && (
+        {commentsEnabled && !compact && selectedCommentElementId && (
           <Button
             type="button"
             variant="secondary"

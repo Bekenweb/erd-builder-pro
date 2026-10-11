@@ -39,6 +39,8 @@ type Props = {
   documentTitle: string;
   onClose: () => void;
   onRestored: () => void | Promise<void>;
+  /** False for a Team file owned by someone else: history is read-only (DATA-004). */
+  canRestore?: boolean;
 };
 
 function parseData(value: unknown) {
@@ -80,7 +82,7 @@ function Summary({ title, items }: { title?: string; items: Array<[string, strin
   );
 }
 
-export function VersionHistoryPanel({ entityType, entityUid, documentTitle, onClose, onRestored }: Props) {
+export function VersionHistoryPanel({ entityType, entityUid, documentTitle, onClose, onRestored, canRestore = true }: Props) {
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<RevisionDetail | null>(null);
@@ -200,15 +202,17 @@ export function VersionHistoryPanel({ entityType, entityUid, documentTitle, onCl
                     <div className="mt-1 text-xs text-muted-foreground">{format(new Date(revision.created_at), 'MMM d, yyyy HH:mm:ss')}</div>
                     {revision.actor && <div className="mt-1 text-xs text-muted-foreground">Changed by {revision.actor.name || revision.actor.email || 'Unknown user'}</div>}
                   </button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mr-3 shrink-0"
-                    disabled={restoring}
-                    onClick={() => { setSelectedId(revision.id); setConfirmOpen(true); }}
-                  >
-                    <RotateCcw className="size-3.5" />Restore
-                  </Button>
+                  {canRestore && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mr-3 shrink-0"
+                      disabled={restoring}
+                      onClick={() => { setSelectedId(revision.id); setConfirmOpen(true); }}
+                    >
+                      <RotateCcw className="size-3.5" />Restore
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>

@@ -3,6 +3,7 @@ import { Editor } from '@tiptap/react';
 import { CellSelection, selectedRect } from '@tiptap/pm/tables';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Columns, Heading, Layout, MessageSquareText, Sigma, Trash2 } from 'lucide-react';
 import { moveSelectedTableColumns, moveSelectedTableRows } from '@/lib/tiptap/table-drag';
+import { commentableBlockPosition } from '@/lib/tiptap/commentBlocks';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -41,8 +42,11 @@ export function TableContextMenu({ editor, children, disabled = false, onRequest
     moveSelectedTableColumns(editor.view, direction);
   };
 
+  // A view-only Team member may still open the menu to comment on a block; table editing stays editable-only (DATA-004).
+  const canOpenMenu = !disabled && (editor.isEditable || Boolean(onRequestComment));
+
   React.useEffect(() => {
-    if (!editor.isEditable || disabled) return;
+    if (!canOpenMenu) return;
 
     const allowNativeContextMenuOutsideTable = (event: MouseEvent) => {
       const target = event.target;
@@ -56,9 +60,9 @@ export function TableContextMenu({ editor, children, disabled = false, onRequest
 
     document.addEventListener('contextmenu', allowNativeContextMenuOutsideTable, true);
     return () => document.removeEventListener('contextmenu', allowNativeContextMenuOutsideTable, true);
-  }, [disabled, editor, editor.isEditable, onRequestComment]);
+  }, [canOpenMenu, editor, onRequestComment]);
 
-  if (!editor.isEditable || disabled) return <>{children}</>;
+  if (!canOpenMenu) return <>{children}</>;
 
   return (
     <ContextMenu>
@@ -70,7 +74,7 @@ export function TableContextMenu({ editor, children, disabled = false, onRequest
           const isTable = target instanceof Element && Boolean(target.closest('td, th'));
           const pointerPosition = editor.view.posAtCoords({ left: event.clientX, top: event.clientY });
           const position = pointerPosition?.pos ?? editor.state.selection.from;
-          setIsTableTarget(isTable || editor.state.selection instanceof CellSelection);
+          setIsTableTarget(editor.isEditable && (isTable || editor.state.selection instanceof CellSelection));
           setContextBlockPosition(commentableBlockPosition(editor, position));
         }}
       >
@@ -79,7 +83,7 @@ export function TableContextMenu({ editor, children, disabled = false, onRequest
 
       <ContextMenuContent className="min-w-52">
         {contextBlockPosition !== null && onRequestComment && (
-          <ContextMenuItem onSelect={() => void onRequestComment(contextBlockPosition)}>
+          <ContextMenuItem onClick={() => void onRequestComment(contextBlockPosition)}>
             <MessageSquareText className="size-4" />
             <span>Comment on block</span>
           </ContextMenuItem>
@@ -175,15 +179,6 @@ export function TableContextMenu({ editor, children, disabled = false, onRequest
       </ContextMenuContent>
     </ContextMenu>
   );
-}
-
-function commentableBlockPosition(editor: Editor, position: number): number | null {
-  const resolved = editor.state.doc.resolve(position);
-  for (let depth = resolved.depth; depth > 0; depth--) {
-    const node = resolved.node(depth);
-    if (node.type.name === 'paragraph' || node.type.name === 'heading') return resolved.before(depth);
-  }
-  return null;
 }
 
 function toggleRowType(editor: Editor, rowType: 'header' | 'footer') {

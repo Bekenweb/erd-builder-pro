@@ -1,3 +1,5 @@
+import { isFileViewer } from '@/lib/fileOwnership';
+import { EntityNodeProvider } from '@/contexts/EntityNodeContext';
 import React, {
   useState, useCallback, useEffect, useMemo, useRef,
 } from 'react';
@@ -234,9 +236,20 @@ export function WorkspaceProvider({
 
   const {
     diagrams, setDiagrams, activeDiagramId, setActiveDiagramId,
-    fetchDiagrams, createDiagram, updateDiagram, deleteDiagram, restoreDiagram, deleteDiagramPermanent, moveDiagramToProject, saveDiagram,
+    fetchDiagrams, createDiagram, updateDiagram, deleteDiagram, restoreDiagram, deleteDiagramPermanent, moveDiagramToProject, saveDiagram: saveDiagramRaw,
     diagramsTotal, isLoading: isDiagramsLoading,
   } = useDiagrams(isAuthenticated, view, isGuest);
+
+  // A file owned by another Team member opens read-only: it is never written to the local draft or the server (DATA-004).
+  const currentUserId = user?.id;
+  const isReadOnlyFile = useCallback((file: any) => isFileViewer(file, currentUserId, isGuest), [currentUserId, isGuest]);
+  const diagramListRef = useRef(diagrams);
+  diagramListRef.current = diagrams;
+  const saveDiagram = useCallback<typeof saveDiagramRaw>(async (...args) => {
+    const diagram = diagramListRef.current.find((item: any) => String(item.id) === String(activeDiagramId) || String(item.uid) === String(activeDiagramId));
+    if (isReadOnlyFile(diagram)) return;
+    return saveDiagramRaw(...args);
+  }, [activeDiagramId, isReadOnlyFile, saveDiagramRaw]);
 
   // ERD Session
   const broadcastRef = useRef<{
@@ -291,7 +304,7 @@ export function WorkspaceProvider({
 
   const {
     notes, setNotes, activeNoteUid, setActiveNoteUid, bumpContentVersion, getContentVersion,
-    fetchNotes, createNote, updateNote, deleteNote, moveNoteToProject, saveNote,
+    fetchNotes, createNote, updateNote, deleteNote, moveNoteToProject, saveNote: saveNoteRaw,
     restoreNote, deleteNotePermanent,
     notesTotal, isLoading: isNotesLoading, isItemLoading: isNoteItemLoading, selectNote, duplicateNote,
   } = useNotes(isGuest);
@@ -305,7 +318,7 @@ export function WorkspaceProvider({
 
   const {
     drawings, setDrawings, activeDrawingUid: activeDrawingId, setActiveDrawingUid: setActiveDrawingId,
-    fetchDrawings, createDrawing, updateDrawing, deleteDrawing, moveDrawingToProject, saveDrawing,
+    fetchDrawings, createDrawing, updateDrawing, deleteDrawing, moveDrawingToProject, saveDrawing: saveDrawingRaw,
     restoreDrawing, deleteDrawingPermanent,
     drawingsTotal,
     isLoading: isDrawingsLoading, isItemLoading: isDrawingItemLoading, selectDrawing, duplicateDrawing,
@@ -313,10 +326,20 @@ export function WorkspaceProvider({
 
   const {
     flowcharts, setFlowcharts, activeFlowchartId, setActiveFlowchartId,
-    fetchFlowcharts, createFlowchart, updateFlowchart, deleteFlowchart, moveFlowchartToProject, saveFlowchart,
+    fetchFlowcharts, createFlowchart, updateFlowchart, deleteFlowchart, moveFlowchartToProject, saveFlowchart: saveFlowchartRaw,
     restoreFlowchart, deleteFlowchartPermanent, flowchartsTotal,
     isLoading: isFlowchartsLoading, isItemLoading: isFlowchartItemLoading, selectFlowchart,
   } = useFlowcharts(isGuest);
+
+  const saveNote = useCallback<typeof saveNoteRaw>(async (note, options) => (
+    isReadOnlyFile(note) ? true : saveNoteRaw(note, options)
+  ), [isReadOnlyFile, saveNoteRaw]);
+  const saveDrawing = useCallback<typeof saveDrawingRaw>(async (drawing) => (
+    isReadOnlyFile(drawing) ? true : saveDrawingRaw(drawing)
+  ), [isReadOnlyFile, saveDrawingRaw]);
+  const saveFlowchart = useCallback<typeof saveFlowchartRaw>(async (flowchart) => (
+    isReadOnlyFile(flowchart) ? true : saveFlowchartRaw(flowchart)
+  ), [isReadOnlyFile, saveFlowchartRaw]);
 
   const { trashData, fetchTrash, restoreDbClient, deleteDbClientPermanent, isLoading: isTrashLoading } = useTrash(isGuest);
 
@@ -432,7 +455,7 @@ export function WorkspaceProvider({
     lastSaveCallRef, isAuthenticated, isGuest,
     view, isPublicView, activeDiagramId, nodes, edges, viewportRef,
     saveDiagram, setIsLocalSaving, triggerDebouncedSync, broadcastMessage,
-    isRefreshing, isERDItemLoading, isDiagramsLoading,
+    isRefreshing, isERDItemLoading,
     activeNoteUid, notes, saveNote,
     activeDrawingId, drawings, saveDrawing,
     activeFlowchartId, flowcharts, saveFlowchart,
@@ -504,6 +527,12 @@ export function WorkspaceProvider({
       setIsRefreshing(false);
     }
   }, [view, activeDiagramId, activeNoteUid, activeDrawingId, activeFlowchartId, selectDiagram, selectNote, selectDrawing, selectFlowchart, setActiveDiagramId, setDiagrams, getContentVersion]);
+
+  useEffect(() => {
+    const reload = () => { void refreshActiveDocument(); };
+    window.addEventListener('document-conflict-resolved', reload);
+    return () => window.removeEventListener('document-conflict-resolved', reload);
+  }, [refreshActiveDocument]);
 
   // URL routing for /drawings/:uid
   useEffect(() => {
@@ -991,8 +1020,18 @@ export function WorkspaceProvider({
   const [breadcrumbLabel, setBreadcrumbLabel] = React.useState<string | null>(null);
   const [teamScopeVersion, setTeamScopeVersion] = useState(0);
 
+  // Always call the latest flush: refreshTeamScope is memoized and would otherwise keep stale nodes.
+  const flushPendingSavesRef = useRef(flushPendingSaves);
+  flushPendingSavesRef.current = flushPendingSaves;
+
   const refreshTeamScope = useCallback(async () => {
     setIsTeamScopeRefreshing(true);
+    // Switching scope clears the open document; write any pending edit before that happens.
+    try {
+      await flushPendingSavesRef.current();
+    } catch (err) {
+      console.warn('[Workspace] Flush before team scope refresh failed:', err);
+    }
     setActiveDiagramId(null);
     setActiveNoteUid(null);
     setActiveDrawingId(null);
@@ -1044,6 +1083,7 @@ export function WorkspaceProvider({
   const ctx = useMemo<WorkspaceContextValue>(() => ({
     user,
     isGuest,
+    isReadOnlyFile,
     handleLogout: _handleLogout,
 
     view,
@@ -1164,6 +1204,7 @@ export function WorkspaceProvider({
     checkForUpdates, downloadUpdate,
     isWebOutdated, showOutdatedBadge,
   }), [
+    isReadOnlyFile,
     user, isGuest, _handleLogout, view, sidebarView,
     isPublicView, setIsPublicView, publicData,
     diagrams, notes, drawings, flowcharts, projects, trashData, nodes, edges, setNodes, setEdges,
@@ -1240,8 +1281,22 @@ export function WorkspaceProvider({
     theme, setTheme, resolvedTheme,
   ]);
 
+  // duplicateEntity depends on `nodes`; route it through a ref so the node context stays stable while dragging.
+  const duplicateEntityRef = useRef(duplicateEntity);
+  duplicateEntityRef.current = duplicateEntity;
+  const stableDuplicateEntity = useCallback((id: string) => duplicateEntityRef.current(id), []);
+  const activeSourceType = activeDocument?.source_type;
+  const isActiveDiagramReadOnly = isPublicView || isReadOnlyFile(activeDiagram);
+  const entityNodeContext = useMemo(() => ({
+    isReadOnly: isActiveDiagramReadOnly,
+    sourceType: activeSourceType,
+    duplicateEntity: stableDuplicateEntity,
+    setSelectedNodeId,
+  }), [isActiveDiagramReadOnly, activeSourceType, stableDuplicateEntity, setSelectedNodeId]);
+
   return (
     <WorkspaceContext.Provider value={ctx}>
+      <EntityNodeProvider value={entityNodeContext}>
       <NotesPage
         notes={notes}
         setNotes={setNotes}
@@ -1256,7 +1311,7 @@ export function WorkspaceProvider({
       <DashboardPage />
       <FlowchartPage />
       {children}
-
+      </EntityNodeProvider>
     </WorkspaceContext.Provider>
   );
 }

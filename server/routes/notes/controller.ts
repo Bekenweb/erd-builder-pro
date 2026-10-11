@@ -1,4 +1,5 @@
 import { Request as ExpressRequest, Response as ExpressResponse } from "express";
+import { parseExpectedVersion } from "../../lib/versioned-write.js";
 import { supabase, s3Client, R2_BUCKET_NAME } from "../../lib/config.js";
 import { handleError } from "../../lib/utils.js";
 import { resolveNewFileProjectId, resolveOwnedProjectId } from "../../lib/security.js";
@@ -98,9 +99,10 @@ export async function update(req: ExpressRequest, res: ExpressResponse): Promise
       title, content, projectId: resolvedProjectId,
       ...(typeof expectedContentHash === "string" ? { expectedContentHash } : {}),
       ...(typeof expectedContent === "string" ? { expectedContent } : {}),
+      expectedVersion: parseExpectedVersion(req.body.expectedVersion),
     });
     if (!result) { res.status(404).json({ error: "Note not found" }); return; }
-    if ("conflict" in result && result.conflict) { res.status(409).json({ error: "The Note changed. Reload it before adding a Comment." }); return; }
+    if ("conflict" in result && result.conflict) { res.status(409).json({ ...result, error: "The Note changed. Reload it before saving again." }); return; }
     res.json(result);
   } catch (err: any) {
     handleError(res, err, "Failed to update note");

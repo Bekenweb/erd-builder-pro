@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useState, ReactNode } from 'react';
+import { createContext, useContext, useCallback, useMemo, useState, ReactNode } from 'react';
 
 export interface PendingActionResult {
   actionId: string;
@@ -91,27 +91,32 @@ export function AIActionProvider({ children }: { children: ReactNode }) {
     return false;
   }, [contentHandler]);
 
+  // Memoized: an inline object here re-rendered every consumer (including every table node) on any parent render.
+  const value = useMemo(() => ({
+    sendAction,
+    pendingPrompt,
+    pendingAction,
+    clearPrompt,
+    clearPendingAction,
+    rightPanelMode,
+    setRightPanelMode,
+    registerContentHandler,
+    applyContent,
+    hasContentHandler: !!contentHandler,
+    contentHandlerStrategies,
+    selectionText,
+    setSelectionText,
+    actionContextData,
+    setActionContextData,
+  }), [
+    sendAction, pendingPrompt, pendingAction, clearPrompt, clearPendingAction,
+    rightPanelMode, setRightPanelMode, registerContentHandler, applyContent, contentHandler,
+    contentHandlerStrategies, selectionText, setSelectionText, actionContextData, setActionContextData,
+  ]);
+
   return (
     <SetActionContextDataContext.Provider value={setActionContextData}>
-      <AIActionContext.Provider
-      value={{
-        sendAction,
-        pendingPrompt,
-        pendingAction,
-        clearPrompt,
-        clearPendingAction,
-        rightPanelMode,
-        setRightPanelMode,
-        registerContentHandler,
-        applyContent,
-        hasContentHandler: !!contentHandler,
-        contentHandlerStrategies,
-        selectionText,
-        setSelectionText,
-        actionContextData,
-        setActionContextData,
-      }}
-    >
+      <AIActionContext.Provider value={value}>
       {children}
       </AIActionContext.Provider>
     </SetActionContextDataContext.Provider>

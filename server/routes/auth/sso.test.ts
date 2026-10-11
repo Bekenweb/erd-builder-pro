@@ -4,6 +4,7 @@ import {
   resolveSsoAccountAction,
   SsoIdentityError,
   ssoFailureRedirect,
+  finishSso,
   ssoStorageEmail,
   startSso,
 } from "./sso.js";
@@ -58,6 +59,32 @@ describe("Cloud SSO", () => {
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(url.searchParams.get("state")).toBe(cookies.get("erdbpro_sso_state"));
     expect(url.searchParams.get("code_challenge")).not.toBe(cookies.get("erdbpro_sso_verifier"));
+  });
+
+  it("reports a cancelled consent instead of an invalid response", async () => {
+    vi.stubEnv("AUTH_MODE", "sso");
+    vi.stubEnv("DATABASE_URL", "postgresql://localhost/erd");
+    vi.stubEnv("ERD_INSTALL_MODE", "web");
+    vi.stubEnv("APP_URL", "https://cloud.example.com");
+    vi.stubEnv("SSO_ISSUER_URL", "https://account.example.com");
+    vi.stubEnv("SSO_CLIENT_ID", "cloud-client");
+    vi.stubEnv("SSO_REDIRECT_URI", "https://cloud.example.com/api/sso/callback");
+
+    const redirectFor = async (query: Record<string, string>) => {
+      let redirect = "";
+      await finishSso({
+        query,
+        cookies: { erdbpro_sso_state: "state-1", erdbpro_sso_verifier: "verifier-1" },
+        header: () => undefined,
+      } as unknown as Request, {
+        clearCookie: () => undefined,
+        redirect: (value: string) => { redirect = value; },
+      } as unknown as Response);
+      return new URL(redirect).searchParams.get("error");
+    };
+
+    expect(await redirectFor({ error: "access_denied", state: "state-1" })).toBe("Sign-in was cancelled");
+    expect(await redirectFor({ error: "access_denied", state: "forged" })).toBe("Invalid or expired SSO response");
   });
 
   it("sends unverified accounts to the trusted issuer verification page", () => {

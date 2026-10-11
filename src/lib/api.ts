@@ -48,9 +48,50 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
       if (teamId) headers.set('X-Team-Id', teamId);
     } catch { /* localStorage may be unavailable */ }
   }
-  return fetch(`${getApiBaseUrl()}${input}`, {
+  const response = await fetch(`${getApiBaseUrl()}${input}`, {
     credentials: 'include',
     ...init,
     headers,
   });
+  if (response.ok && OPENED_DOCUMENT.test(input)) {
+    if (!init?.method || init.method === 'GET') void seedOpenedDocumentVersion(input, response.clone());
+    else if (init.method === 'PUT') void recordSavedDocumentVersion(input, response.clone());
+  }
+  return response;
+}
+
+const OPENED_DOCUMENT = /^\/api\/(notes|drawings|flowcharts|diagrams)\/[^/?]+$/;
+const DRAFT_TYPE_BY_ROUTE: Record<string, string> = { notes: 'notes', drawings: 'drawings', flowcharts: 'flowchart', diagrams: 'erd' };
+
+/**
+ * Remember the version a document was opened at, so the next save says what it was based on (DATA-004).
+ * A pending local draft keeps its older baseline: replacing it would let that draft overwrite newer server data.
+ */
+async function seedOpenedDocumentVersion(input: string, response: Response): Promise<void> {
+  try {
+    const route = input.split('/')[2];
+    const doc = await response.json();
+    const version = Number(doc?.version ?? doc?._version);
+    const id = doc?.uid ?? doc?.id;
+    if (!Number.isInteger(version) || id === undefined || id === null) return;
+    const draftType = DRAFT_TYPE_BY_ROUTE[route];
+    const [{ localPersistence }, { documentVersionKey, updateCachedDiagramVersion }] = await Promise.all([
+      import('./localPersistence'),
+      import('./diagramVersioning'),
+    ]);
+    if (await localPersistence.hasPendingSync(draftType as never, id)) return;
+    await updateCachedDiagramVersion(documentVersionKey(draftType, id), version);
+  } catch { /* the version is an optimization of conflict detection, never a reason to fail a load */ }
+}
+
+/** A save made outside the draft queue (a comment anchor, a rename) moves the version too; follow it so the next autosave is not refused. */
+async function recordSavedDocumentVersion(input: string, response: Response): Promise<void> {
+  try {
+    const route = input.split('/')[2];
+    const version = Number((await response.json())?.version);
+    const draftType = DRAFT_TYPE_BY_ROUTE[route];
+    if (!Number.isInteger(version) || !draftType) return;
+    const { documentVersionKey, updateCachedDiagramVersion } = await import('./diagramVersioning');
+    await updateCachedDiagramVersion(documentVersionKey(draftType, input.split('/')[3]), version);
+  } catch { /* best effort */ }
 }

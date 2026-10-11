@@ -231,12 +231,20 @@ export const DBMLEditorPanel = memo(function DBMLEditorPanel({
     return () => clearTimeout(applyTimer.current);
   }, [value]);
 
+  const lastStructureRef = useRef<{ data: Map<string, unknown>; edges: Edge[] } | null>(null);
+
   useEffect(() => {
     if (nodes.length === 0 || userEditPending.current) return;
     if (applyingFromDBML.current) {
       applyingFromDBML.current = false;
       return;
     }
+
+    // Dragging only moves nodes: `data` and `edges` keep their identity, so skip the expensive fingerprint.
+    const previous = lastStructureRef.current;
+    lastStructureRef.current = { data: new Map(nodes.map(node => [node.id, node.data])), edges };
+    if (previous && previous.edges === edges && previous.data.size === nodes.length
+      && nodes.every(node => previous.data.get(node.id) === node.data)) return;
 
     const hash = canvasFingerprint(nodes, edges);
     if (hash === lastCanvasHash.current) return;

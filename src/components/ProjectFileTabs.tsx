@@ -236,10 +236,11 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
 
   if (!projectId) return null
 
+  // The page already pads the top by 16px; mb-3 plus the 4px of py-1 gives the same 16px below, and -mt-1 offsets the py-1 above.
   return (
-    <div className="flex min-h-12 items-center border-b bg-background shrink-0">
+    <div className="-mt-1 mb-3 flex items-center shrink-0">
       <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
-        <div className="flex items-center justify-start gap-1 px-3 py-2">
+        <div className="flex items-center justify-start gap-1 py-1">
           {projectFiles.map(({ file, type }) => {
             const feature = FEATURES.find(item => item.id === type)!
             const Icon = feature.icon
@@ -265,7 +266,7 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
         </div>
       </div>
 
-      <div ref={popoverRef} className="relative shrink-0 self-stretch border-l bg-background px-2 py-2">
+      <div ref={popoverRef} className="relative shrink-0 pl-2">
         <button
           onClick={() => setCreateOpen(open => !open)}
           className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"

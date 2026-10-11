@@ -58,6 +58,9 @@ interface MainHeaderProps {
   breadcrumbLabel?: string | null;
   noteContent?: string;
   historyAvailable?: boolean;
+  /** False for a Team file owned by someone else: hides Share (DATA-004). */
+  canManage?: boolean;
+  onRefresh?: () => void;
   discussionPanel?: React.ReactNode;
 }
 
@@ -93,6 +96,8 @@ export const MainHeader = React.memo(({
   breadcrumbLabel,
   noteContent,
   historyAvailable = true,
+  canManage = true,
+  onRefresh,
   discussionPanel,
 }: MainHeaderProps) => {
   const location = useLocation();
@@ -353,7 +358,7 @@ export const MainHeader = React.memo(({
             {discussionPanel}
 
             <NavActionsMenu 
-              onShare={() => isOnline && setIsShareModalOpen(true)}
+              onShare={canManage ? () => isOnline && setIsShareModalOpen(true) : undefined}
               onDelete={onDelete}
               onRename={onRename}
               onDuplicate={onDuplicate}
@@ -371,6 +376,8 @@ export const MainHeader = React.memo(({
               noteContent={noteContent}
               historyEnabled={historyEnabled}
               onOpenHistory={isGuest || isPublicView ? undefined : openHistory}
+              onRefresh={isGuest || isPublicView ? undefined : onRefresh}
+              isRefreshing={isRefreshing}
             />
 
             {activeFileUid && activeFileId && isOnline && (

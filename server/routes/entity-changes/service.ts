@@ -229,7 +229,8 @@ export async function restoreHistoryRevision(input: {
   expectedUpdatedAt: string | null;
 }) {
   const current = await readOwnedEntity(input.entityType, input.uid, input.userId);
-  if (!current) return { status: "not_found" as const };
+  // Team members may read history, but only the creator restores it (DATA-004).
+  if (!current || String((current.entity as any).userId) !== String(input.userId)) return { status: "not_found" as const };
   if (!sameTimestamp(current.updatedAt, input.expectedUpdatedAt)) return { status: "conflict" as const, currentUpdatedAt: current.updatedAt };
 
   const revision = await getEntityRevision(input.entityType, current.entityId, input.userId, input.revisionId);

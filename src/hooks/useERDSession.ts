@@ -330,7 +330,10 @@ export function useERDSession(
       // === in-flight, don't overwrite the DDL-applied data with empty server ===
       // === data (the diagram was just created and has no entities yet).      ===
       const latestDraft = await localPersistence.getDraft(DraftType.ERD, finalData.uid || id);
-      if (options?.isStale?.()) return null;
+      if (options?.isStale?.()) {
+        setIsItemLoading(false);
+        return null;
+      }
       const pendingCanvas = readPendingERDCanvas(latestDraft ?? draft);
       setNodes(prev => options?.force || prev.length === 0 ? pendingCanvas?.nodes ?? flowNodes : prev);
       setEdges(prev => options?.force || prev.length === 0 ? pendingCanvas?.edges ?? flowEdges : prev);

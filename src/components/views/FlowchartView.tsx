@@ -514,11 +514,12 @@ export const FlowchartView = React.memo(({
       const isSelected = n.id === selectedNodeId;
       const isGroupMember = selectedGroupNodeIds.has(n.id);
       const selected = isSelected || isGroupMember;
-      const canComment = commentsEnabled && !isReadOnly && !companionMode;
+      // commentsEnabled is never set on a public link; a read-only Team viewer may still comment.
+      const canComment = commentsEnabled && !companionMode;
 
-      return !!n.selected === selected && n.data._commentsEnabled === canComment
+      return !!n.selected === selected && n.data._commentsEnabled === canComment && n.data._readOnly === isReadOnly
         ? n
-        : { ...n, selected, data: { ...n.data, _commentsEnabled: canComment } };
+        : { ...n, selected, data: { ...n.data, _commentsEnabled: canComment, _readOnly: isReadOnly } };
     });
   }, [companionMode, commentsEnabled, isReadOnly, nodes, selectedNodeId, selectedGroupNodeIds]);
 
@@ -843,7 +844,7 @@ export const FlowchartView = React.memo(({
           onlyRenderVisibleElements={true}
           nodesDraggable={!isReadOnly}
           nodesConnectable={!isReadOnly}
-          elementsSelectable={!isReadOnly}
+          elementsSelectable={!isReadOnly || commentsEnabled}
           minZoom={0.1}
           maxZoom={2.5}
           onMove={(e, v) => setViewport(v)}

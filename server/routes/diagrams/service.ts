@@ -74,7 +74,7 @@ const LIST_SELECT = {
 const TAB_SELECT = {
   id: true, uid: true, name: true, projectId: true,
   createdAt: true, updatedAt: true, isDeleted: true,
-  sourceType: true,
+  sourceType: true, userId: true,
 } as const;
 
 function dedupe<T extends { id: any }>(arr: T[], label: string): T[] {
@@ -305,7 +305,7 @@ export async function updateDiagram(
 ) {
   if (!prisma) throw new Error("Database connection not available");
   const existing = await prisma.diagram.findFirst({
-    where: uidWhere(uid, userId),
+    where: creatorUidWhere(uid, userId),
   });
   if (!existing) return null;
 
@@ -381,7 +381,7 @@ export async function updateDiagramShare(
   data: { isPublic: boolean; shareToken?: string | null; expiryDate?: Date | null }
 ) {
   const current = await prisma?.diagram.findFirst({
-    where: uidWhere(uid, userId),
+    where: creatorUidWhere(uid, userId),
   });
   if (!current) return null;
 

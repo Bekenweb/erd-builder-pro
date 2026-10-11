@@ -2,19 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps,
 import { formatDistanceToNowStrict } from "date-fns";
 import { ArrowLeft, Check, CheckCircle2, Database, FileText, MessageCircle, MessageSquareText, MoreHorizontal, Network, PenTool, Pencil, Plus, RotateCcw, Send, Trash2, X, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import ConfirmModal from "@/components/ConfirmModal";
-import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { Message, MessageAvatar, MessageContent, MessageGroup } from "@/components/ui/message";
 import { MessageScroller, MessageScrollerButton, MessageScrollerContent, MessageScrollerItem, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CommentAvatar, shortCommentTime } from "@/components/comments/CommentThreadView";
+import { ReplyBox } from "@/components/comments/ReplyBox";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -149,20 +147,8 @@ function avatarInitials(name: string): string {
   return initials.toUpperCase() || "?";
 }
 
-function groupMessages(messages: DiscussionMessageData[]): DiscussionMessageData[][] {
-  const groups: DiscussionMessageData[][] = [];
-  for (const message of messages) {
-    const lastGroup = groups[groups.length - 1];
-    if (lastGroup && lastGroup[0].authorId === message.authorId) lastGroup.push(message);
-    else groups.push([message]);
-  }
-  return groups;
-}
-
-function DiscussionMessage({ message, isOwn, showAvatar, canEdit, editing, editDraft, editOriginalBody, disabled, onEdit, onDelete, onEditDraftChange, onCancelEdit, onSaveEdit }: {
+function DiscussionMessage({ message, canEdit, editing, editDraft, editOriginalBody, disabled, onEdit, onDelete, onEditDraftChange, onCancelEdit, onSaveEdit }: {
   message: DiscussionMessageData;
-  isOwn: boolean;
-  showAvatar: boolean;
   canEdit: boolean;
   editing: boolean;
   editDraft: string;
@@ -174,96 +160,57 @@ function DiscussionMessage({ message, isOwn, showAvatar, canEdit, editing, editD
   onCancelEdit: () => void;
   onSaveEdit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  const avatar = (
-    <MessageAvatar aria-hidden={!showAvatar}>
-      {showAvatar && (
-        <Avatar aria-label={message.authorName}>
-          <AvatarFallback>{avatarInitials(message.authorName)}</AvatarFallback>
-        </Avatar>
-      )}
-    </MessageAvatar>
-  );
-  const bubble = (
-    <Bubble className={cn(isOwn ? "bg-brand text-white" : "bg-muted text-foreground", isOwn ? "rounded-br-md" : "rounded-bl-md")}>
-      <BubbleContent className="wrap-break-word">{message.body}</BubbleContent>
-    </Bubble>
-  );
-  const time = messageTime(message.createdAt);
-  if (editing && canEdit) {
-    return (
-      <form onSubmit={onSaveEdit} className="flex w-full min-w-0 flex-col gap-2">
-        <DiscussionTextarea
-          autoFocus
-          aria-label="Edit your message"
-          value={editDraft}
-          onChange={onEditDraftChange}
-          className="min-h-11! max-h-36 w-full resize-none overflow-y-auto rounded-2xl bg-muted/40 px-3 py-2 shadow-none"
-          disabled={disabled}
-        />
-        {message.body !== editOriginalBody && <p className="text-xs text-destructive" role="alert">This message changed. Cancel and edit the latest version.</p>}
-        <div className="flex justify-end gap-1">
-          <Button type="button" variant="ghost" size="sm" onClick={onCancelEdit} disabled={disabled}>Cancel</Button>
-          <Button type="submit" size="sm" disabled={disabled || !editDraft.trim() || message.body !== editOriginalBody}>{disabled ? "Saving…" : "Save"}</Button>
-        </div>
-      </form>
-    );
-  }
-
-  const messageRow = (
-    <Message align={isOwn ? "end" : "start"}>
-      {isOwn ? (
-        <>
-          <MessageContent>
-            <Tooltip>
-              <TooltipTrigger render={bubble} />
-              <TooltipContent side="left">
-                <span className="flex flex-col gap-0.5">
-                  <span>{message.authorName} · {time}</span>
-                  <span>Delivered</span>
-                </span>
-              </TooltipContent>
-            </Tooltip>
-          </MessageContent>
-          {avatar}
-        </>
-      ) : (
-        <>
-          {avatar}
-          <MessageContent>
-            <Tooltip>
-              <TooltipTrigger render={bubble} />
-              <TooltipContent side="right">{message.authorName} · {time}</TooltipContent>
-            </Tooltip>
-          </MessageContent>
-        </>
-      )}
-    </Message>
-  );
-  if (!canEdit) return messageRow;
-
+  const changedElsewhere = message.body !== editOriginalBody;
   return (
-    <ContextMenu>
-      <ContextMenuTrigger
-        className="block w-full min-w-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        role="group"
-        tabIndex={0}
-        aria-label={`Message from ${message.authorName}`}
-      >
-        {messageRow}
-      </ContextMenuTrigger>
-      <ContextMenuContent className="min-w-36" positionerClassName="z-[210]">
-        <ContextMenuGroup>
-          <ContextMenuItem onClick={onEdit}>
-            <Pencil aria-hidden="true" />
-            Edit
-          </ContextMenuItem>
-          <ContextMenuItem variant="destructive" onClick={onDelete}>
-            <Trash2 aria-hidden="true" />
-            Delete
-          </ContextMenuItem>
-        </ContextMenuGroup>
-      </ContextMenuContent>
-    </ContextMenu>
+    <div className="group/message relative flex gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-muted/40 focus-within:bg-muted/40">
+      <CommentAvatar name={message.authorName} className="mt-0.5 size-7" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="truncate text-sm font-semibold">{message.authorName}</span>
+          <span className="shrink-0 text-xs text-muted-foreground" title={messageTime(message.createdAt)}>{shortCommentTime(message.createdAt)}</span>
+        </div>
+        {editing && canEdit ? (
+          <form onSubmit={onSaveEdit} className="mt-1 flex flex-col gap-1.5">
+            <div className="flex items-end gap-1.5 rounded-lg border border-primary/60 bg-background px-2.5 py-1.5 ring-2 ring-primary/20">
+              <DiscussionTextarea
+                autoFocus
+                onFocus={(event) => { const end = event.currentTarget.value.length; event.currentTarget.setSelectionRange(end, end); }}
+                aria-label="Edit your message"
+                value={editDraft}
+                onChange={onEditDraftChange}
+                className="min-h-6! max-h-32 flex-1 resize-none overflow-y-auto border-0 bg-transparent p-0 py-0.5 text-sm shadow-none focus-visible:ring-0"
+                disabled={disabled}
+              />
+              <Button type="button" variant="secondary" size="icon-xs" className="rounded-full" aria-label="Cancel edit" onClick={onCancelEdit} disabled={disabled}>
+                <X aria-hidden="true" className="size-3.5" />
+              </Button>
+              <Button type="submit" size="icon-xs" className="rounded-full" aria-label="Save message" disabled={disabled || !editDraft.trim() || changedElsewhere}>
+                <Check aria-hidden="true" className="size-3.5" />
+              </Button>
+            </div>
+            {changedElsewhere && <p className="text-xs text-destructive" role="alert">This message changed. Cancel and edit the latest version.</p>}
+          </form>
+        ) : (
+          <p className="whitespace-pre-wrap wrap-break-word text-sm">{message.body}</p>
+        )}
+      </div>
+      {canEdit && !editing && (
+        <div className="absolute -top-3 right-1 z-10 hidden rounded-md border bg-popover shadow-sm group-hover/message:flex group-focus-within/message:flex [@media(hover:none)]:flex">
+          <Tooltip>
+            <TooltipTrigger render={
+              <Button type="button" variant="ghost" size="icon-xs" aria-label="Edit message" onClick={onEdit}><Pencil aria-hidden="true" className="size-3.5" /></Button>
+            } />
+            <TooltipContent side="top">Edit</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger render={
+              <Button type="button" variant="ghost" size="icon-xs" className="text-destructive hover:text-destructive" aria-label="Delete message" onClick={onDelete}><Trash2 aria-hidden="true" className="size-3.5" /></Button>
+            } />
+            <TooltipContent side="top">Delete</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -455,16 +402,21 @@ export function DiscussionsPanel({
   projectId,
   teamId,
   userId,
+  userName,
   fileContext,
   anchorContext,
   onContextSelected,
+  anchorPreview,
 }: {
   projectId: string;
   teamId: string;
   userId?: string;
+  userName?: string;
   fileContext: { featureType: CollaborationFeatureType; fileId: string; label: string };
   anchorContext?: DiscussionAnchor | null;
   onContextSelected?: (context: CollaborationContext) => void;
+  /** Text of the commented content (e.g. a Note block); null when unknown. */
+  anchorPreview?: (anchorId: string) => string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"discussions" | "comments">("discussions");
@@ -485,6 +437,7 @@ export function DiscussionsPanel({
   const [editDraft, setEditDraft] = useState("");
   const [editOriginalBody, setEditOriginalBody] = useState("");
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [draft, setDraft] = useState("");
   const [pendingCommentOpen, setPendingCommentOpen] = useState<PendingCommentOpen | null>(null);
   const [composeAnchor, setComposeAnchor] = useState<DiscussionAnchor | null>(null);
@@ -773,8 +726,16 @@ export function DiscussionsPanel({
     return () => { cancelled = true; };
   }, [activeTab, loadAnchor, loadThreads, pendingCommentOpen]);
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next && pendingDelete) return;
+  const hasUnsavedText = ((screen === "thread" || screen === "compose") && draft.trim() !== "")
+    || (editingMessageId !== null && editDraft !== editOriginalBody);
+
+  const handleOpenChange = (next: boolean, details?: { reason?: string; event?: Event }) => {
+    if (!next && (pendingDelete || confirmDiscard)) return;
+    // The thread actions menu renders in its own portal; pressing an item there is not an outside click.
+    const target = details?.event?.target;
+    if (!next && details?.reason === "outside-press" && target instanceof Element
+      && target.closest('[data-slot="dropdown-menu-content"]')) return;
+    if (!next && hasUnsavedText) { setConfirmDiscard(true); return; }
     setOpen(next);
     if (next) {
       void loadThreads();
@@ -875,8 +836,7 @@ export function DiscussionsPanel({
     }
   };
 
-  const submitReply = async (event: FormEvent) => {
-    event.preventDefault();
+  const submitReply = async () => {
     const body = draft.trim();
     if (!body || !selectedThreadId || sending) return;
     setSending(true);
@@ -1010,7 +970,6 @@ export function DiscussionsPanel({
 
   const activeThread = threads.find((thread) => thread.id === selectedThreadId);
   const commentGroups = useMemo(() => groupCommentThreads(threads), [threads]);
-  const messageGroups = useMemo(() => groupMessages(messages), [messages]);
   const title = activeTab === "discussions"
     ? "Discussions"
     : screen === "compose" ? "New comment"
@@ -1043,66 +1002,47 @@ export function DiscussionsPanel({
         }
       />
       <PopoverContent
-        side={isCommentRail ? "left" : "bottom"}
-        align={isCommentRail ? "start" : "end"}
+        side="left"
+        align="start"
         sideOffset={8}
-        className={cn("flex h-[min(42rem,calc(100svh-5rem))] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0", isCommentRail ? "w-[min(22rem,calc(100vw-1rem))]" : "w-[min(28rem,calc(100vw-1rem))]")}
+        data-discussions-panel=""
+        className="flex h-[min(42rem,calc(100svh-5rem))] w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0"
         aria-describedby={descriptionId}
       >
-        <div className="shrink-0 border-b border-border px-4 py-3">
-          {activeTab === "discussions" ? (
-            <div className="grid grid-cols-[minmax(0,1fr)_7rem_minmax(0,1fr)] items-center gap-2 max-sm:grid-cols-[2rem_minmax(0,1fr)_auto] max-sm:grid-rows-[auto_auto]">
-              {screen === "list" ? <span aria-hidden="true" className="size-7 max-sm:col-start-1 max-sm:row-start-2" /> : (
-                <Button type="button" variant="ghost" size="icon-xs" className="justify-self-start max-sm:col-start-1 max-sm:row-start-2" aria-label="Back to discussion list" onClick={() => setScreen("list")}>
-                  <ArrowLeft aria-hidden="true" className="size-4" />
-                </Button>
-              )}
-              <div className="col-start-2 row-start-1 min-w-0 max-w-28 justify-self-center text-center max-sm:col-span-3 max-sm:col-start-1 max-sm:max-w-none max-sm:justify-self-stretch">
-                <h2 className="truncate text-base font-semibold">{title}</h2>
-                <p id={descriptionId} className="mt-0.5 truncate text-xs text-muted-foreground">{description}</p>
-              </div>
-              <div className="col-start-3 row-start-1 flex min-w-0 items-center justify-self-end gap-0.5 max-sm:col-start-2 max-sm:col-span-2 max-sm:row-start-2">
-                {screen === "thread" && activeThread && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" aria-label="Discussion actions"><MoreHorizontal aria-hidden="true" className="size-4" /></Button>} />
-                    <DropdownMenuContent align="end" className="w-44" positionerClassName="z-[210]">
-                      <DropdownMenuGroup>
-                        <DropdownMenuItem onClick={() => void changeStatus()} disabled={sending}>
-                          {activeThread.status === "open" ? <Check aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
-                          {activeThread.status === "open" ? "Resolve" : "Reopen"}
-                        </DropdownMenuItem>
-                        {activeThread.canDelete && (
-                          <DropdownMenuItem variant="destructive" onClick={() => setPendingDelete({ type: "thread", threadId: activeThread.id })}>
-                            <Trash2 aria-hidden="true" />
-                            Delete Thread
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-                <Button type="button" variant="ghost" size="icon-xs" aria-label="Close discussions" onClick={() => setOpen(false)}>
-                  <X aria-hidden="true" className="size-4" />
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                {screen !== "list" && (
-                  <Button variant="ghost" size="sm" className="mb-2 -ml-2 min-h-11 px-2" onClick={() => setScreen("list")}>
-                    <ArrowLeft aria-hidden="true" />
-                    Back to list
-                  </Button>
-                )}
-                <h2 className="truncate text-sm font-semibold">{title}</h2>
-                <p id={descriptionId} className="mt-1 truncate text-xs text-muted-foreground">{description}</p>
-              </div>
-              <Button variant="ghost" size="icon" className="size-11 shrink-0" aria-label="Close comments" onClick={() => setOpen(false)}>
-                <X aria-hidden="true" />
+        <div className="shrink-0 border-b border-border px-3 py-2">
+          <div className="flex items-center gap-1">
+            {screen !== "list" && (
+              <Button type="button" variant="ghost" size="icon-xs" aria-label="Back to list" onClick={() => setScreen("list")}>
+                <ArrowLeft aria-hidden="true" className="size-4" />
               </Button>
+            )}
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-sm font-semibold">{title}</h2>
+              <p id={descriptionId} className="truncate text-xs text-muted-foreground">{description}</p>
             </div>
-          )}
+            {activeTab === "discussions" && screen === "thread" && activeThread && (
+              <DropdownMenu>
+                <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" aria-label="Discussion actions"><MoreHorizontal aria-hidden="true" className="size-4" /></Button>} />
+                <DropdownMenuContent align="end" className="w-44" positionerClassName="z-[210]">
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem onClick={() => void changeStatus()} disabled={sending}>
+                      {activeThread.status === "open" ? <Check aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+                      {activeThread.status === "open" ? "Resolve" : "Reopen"}
+                    </DropdownMenuItem>
+                    {activeThread.canDelete && (
+                      <DropdownMenuItem variant="destructive" onClick={() => setPendingDelete({ type: "thread", threadId: activeThread.id })}>
+                        <Trash2 aria-hidden="true" />
+                        Delete Thread
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button type="button" variant="ghost" size="icon-xs" aria-label={`Close ${activeTab}`} onClick={() => handleOpenChange(false)}>
+              <X aria-hidden="true" className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="shrink-0 border-b border-border/70 px-3 py-2">
@@ -1126,8 +1066,8 @@ export function DiscussionsPanel({
                 </Tabs>
               </div>
             ) : isCommentRail ? (
-              <div className="shrink-0 border-b border-border/70 px-4 py-2 text-xs text-muted-foreground">
-                Showing the latest few messages. Open a card to load the full history.
+              <div className="shrink-0 border-b border-border/70 px-3 py-1.5 text-[11px] text-muted-foreground">
+                Latest messages. Open a card for the full history.
               </div>
             ) : (
               <div className="shrink-0 border-b border-border/70 px-4 py-2 text-xs text-muted-foreground">
@@ -1150,30 +1090,30 @@ export function DiscussionsPanel({
               )}
               {!loadError && isCommentRail && commentGroups.map((group) => {
                 const thread = group.representative;
-                const StatusIcon = thread.status === "resolved" ? CheckCircle2 : MessageCircle;
-                const statusLabel = thread.status === "resolved" ? "Resolved" : thread.unread ? "New activity" : "Open";
+                const latest = group.previewMessages[group.previewMessages.length - 1];
+                const quoted = thread.anchorId ? anchorPreview?.(thread.anchorId) : null;
+                const authorName = latest?.authorName || "Team member";
                 return (
                   <button
                     type="button"
                     key={group.key}
-                    className={cn("w-full border-b border-border/70 px-4 py-3 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", thread.unread && "bg-primary/5")}
+                    className={cn("w-full border-b border-border/70 px-3 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", thread.unread && "bg-primary/5")}
                     onClick={() => void openCommentGroup(group)}
                   >
-                    <span className="flex items-center gap-3">
-                      <span role="img" aria-label={statusLabel} className={cn("relative flex size-9 shrink-0 items-center justify-center rounded-full", thread.status === "resolved" ? "bg-emerald-500/10 text-emerald-500" : thread.unread ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>
-                        <StatusIcon aria-hidden="true" className="size-4" />
-                        {thread.unread && <span aria-hidden="true" className="absolute right-0.5 top-0.5 size-2 rounded-full bg-primary ring-2 ring-popover" />}
+                    <span className="flex items-center gap-2">
+                      <span className="relative shrink-0">
+                        <CommentAvatar name={authorName} />
+                        {thread.unread && <span role="img" aria-label="New activity" className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary ring-2 ring-popover" />}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className={cn("truncate text-sm", thread.unread ? "font-semibold text-foreground" : "font-medium")}>{thread.anchorLabel || "Comment"}</span>
-                          <span className="ml-auto shrink-0 text-xs text-muted-foreground">{relativeMessageTime(thread.lastMessageAt)}</span>
-                        </span>
-                        <span className="mt-1 block truncate text-xs text-muted-foreground">{featureLabel(thread.featureType)} · {group.threads.length} {group.threads.length === 1 ? "thread" : "threads"}</span>
-                      </span>
+                      <span className="min-w-0 truncate text-xs font-semibold">{authorName}</span>
+                      {thread.status === "resolved" && <CheckCircle2 role="img" aria-label="Resolved" className="size-3.5 shrink-0 text-emerald-500" />}
+                      <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{shortCommentTime(thread.lastMessageAt ?? "")}</span>
                     </span>
-                    <span className="mt-3 block space-y-1 pl-12">
-                      {group.previewMessages.map((message) => <span key={message.id} className="block truncate text-sm text-muted-foreground">{message.body}</span>)}
+                    <span className="mt-1 block space-y-0.5 pl-8">
+                      {quoted
+                        ? <span className="line-clamp-2 border-l-2 border-yellow-500/70 pl-2 text-xs leading-snug text-muted-foreground">{quoted.length > 50 ? `${quoted.slice(0, 50).trimEnd()}…` : quoted}</span>
+                        : <span className="block truncate text-[11px] text-muted-foreground">{thread.anchorLabel || "Comment"}</span>}
+                      {latest && <span className="block truncate text-xs">{latest.body}</span>}
                     </span>
                   </button>
                 );
@@ -1234,16 +1174,28 @@ export function DiscussionsPanel({
 
         {screen === "thread" && activeThread && (
           <div className="flex min-h-0 flex-1 flex-col">
-            {activeTab === "comments" && <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-              <div className="min-w-0">
-                <span className="block truncate text-sm text-muted-foreground">{activeThread.anchorType === "general" ? "General" : activeThread.anchorType}</span>
-                {activeThread.featureType && <span className="block truncate text-xs text-muted-foreground">{featureLabel(activeThread.featureType)} · {isCommentRail || activeThread.fileId === fileContext.fileId ? "Current file" : "Project file"}</span>}
+            {activeTab === "comments" && (
+              <div className="flex items-start gap-2 border-b border-border px-3 py-1.5">
+                <div className="min-w-0 flex-1">
+                  {(() => {
+                    const quoted = activeThread.anchorId && (isCommentRail || activeThread.fileId === fileContext.fileId) ? anchorPreview?.(activeThread.anchorId) : null;
+                    return quoted
+                      ? <p className="line-clamp-2 border-l-2 border-yellow-500/70 pl-2 text-xs leading-snug text-muted-foreground">{quoted}</p>
+                      : <span className="block truncate text-xs text-muted-foreground">{activeThread.anchorType === "general" ? "General" : activeThread.anchorType}{activeThread.featureType && ` · ${featureLabel(activeThread.featureType)}`}</span>;
+                  })()}
+                </div>
+                <TooltipProvider delay={250}>
+                  <Tooltip>
+                    <TooltipTrigger render={
+                      <Button type="button" variant="ghost" size="icon-xs" className="shrink-0" aria-label={activeThread.status === "open" ? "Resolve" : "Reopen"} onClick={() => void changeStatus()} disabled={sending}>
+                        {activeThread.status === "open" ? <Check aria-hidden="true" className="size-4" /> : <RotateCcw aria-hidden="true" className="size-4" />}
+                      </Button>
+                    } />
+                    <TooltipContent side="left">{activeThread.status === "open" ? "Resolve" : "Reopen"}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
-              <Button variant="outline" className="min-h-11 shrink-0" onClick={() => void changeStatus()} disabled={sending}>
-                {activeThread.status === "open" ? <Check aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
-                {activeThread.status === "open" ? "Resolve" : "Reopen"}
-              </Button>
-            </div>}
+            )}
             {threadError && (
               <div className="m-4 rounded-lg border border-destructive/40 p-4 text-sm" role="alert">
                 <p>{threadError}</p>
@@ -1259,7 +1211,7 @@ export function DiscussionsPanel({
                 <MessageScrollerProvider key={activeThread.id} defaultScrollPosition="end">
                   <MessageScroller className="flex-1">
                     <MessageScrollerViewport aria-label={`${activeTab === "comments" ? "Comment" : "Discussion"} messages`}>
-                      <MessageScrollerContent className="gap-4 p-4">
+                      <MessageScrollerContent className="gap-1 p-3">
                         {messageHistory.hasMore && (
                           <div className="flex flex-col items-center gap-1">
                             <Button type="button" size="sm" variant="ghost" onClick={() => void loadOlderMessages()} disabled={loadingOlder}>
@@ -1268,28 +1220,22 @@ export function DiscussionsPanel({
                             {olderError && <p className="text-xs text-destructive" role="alert">{olderError}</p>}
                           </div>
                         )}
-                        {messageGroups.map((group) => (
-                          <MessageGroup key={group[0].id}>
-                            {group.map((message, index) => (
-                              <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor={index === 0}>
-                                <DiscussionMessage
-                                  message={message}
-                                  isOwn={message.authorId === userId}
-                                  showAvatar={index === group.length - 1}
-                                  canEdit={activeTab === "discussions" && message.authorId === userId}
-                                  editing={editingMessageId === message.id}
-                                  editDraft={editDraft}
-                                  editOriginalBody={editOriginalBody}
-                                  disabled={sending}
-                                  onEdit={() => startEditMessage(message)}
-                                  onDelete={() => setPendingDelete({ type: "message", threadId: activeThread.id, message })}
-                                  onEditDraftChange={setEditDraft}
-                                  onCancelEdit={cancelEditMessage}
-                                  onSaveEdit={(event) => { void saveMessageEdit(message, event); }}
-                                />
-                              </MessageScrollerItem>
-                            ))}
-                          </MessageGroup>
+                        {messages.map((message) => (
+                          <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor>
+                            <DiscussionMessage
+                              message={message}
+                              canEdit={activeTab === "discussions" && message.authorId === userId}
+                              editing={editingMessageId === message.id}
+                              editDraft={editDraft}
+                              editOriginalBody={editOriginalBody}
+                              disabled={sending}
+                              onEdit={() => startEditMessage(message)}
+                              onDelete={() => setPendingDelete({ type: "message", threadId: activeThread.id, message })}
+                              onEditDraftChange={setEditDraft}
+                              onCancelEdit={cancelEditMessage}
+                              onSaveEdit={(event) => { void saveMessageEdit(message, event); }}
+                            />
+                          </MessageScrollerItem>
                         ))}
                       </MessageScrollerContent>
                     </MessageScrollerViewport>
@@ -1298,11 +1244,30 @@ export function DiscussionsPanel({
                 </MessageScrollerProvider>
               </TooltipProvider>
             )}
-            {activeThread.status === "open" && !threadError && <DiscussionComposer id="collaboration-reply" value={draft} onChange={setDraft} onSubmit={submitReply} placeholder={activeTab === "comments" ? "Write a reply..." : "Write a reply..."} disabled={sending} submitLabel={sending ? "Sending…" : "Send reply"} />}
+            {activeThread.status === "open" && !threadError && <ReplyBox userName={userName || "You"} value={draft} onChange={setDraft} onSubmit={() => void submitReply()} disabled={sending} submitLabel={sending ? "Sending…" : "Send reply"} />}
             {activeThread.status === "resolved" && <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">Reopen this thread to reply.</p>}
           </div>
         )}
       </PopoverContent>
+      <ConfirmModal
+        isOpen={confirmDiscard}
+        title="Discard unsent changes?"
+        message="You have text that hasn't been sent or saved. If you close this panel now, it will be lost."
+        confirmText="Discard"
+        cancelText="Cancel"
+        variant="warning"
+        onCancel={() => {
+          setConfirmDiscard(false);
+          // The dialog hands focus back to the header button; return it to the text being written.
+          window.setTimeout(() => document.querySelector<HTMLTextAreaElement>("[data-discussions-panel] textarea")?.focus(), 150);
+        }}
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          setDraft("");
+          cancelEditMessage();
+          setOpen(false);
+        }}
+      />
       <ConfirmModal
         isOpen={pendingDelete !== null}
         title={pendingDelete?.type === "message" ? "Delete message?" : "Delete discussion?"}

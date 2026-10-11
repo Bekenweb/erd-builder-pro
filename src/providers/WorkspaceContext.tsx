@@ -24,6 +24,8 @@ export interface WorkspaceContextValue {
 
   // Public
   isPublicView: boolean;
+  /** True for a Team file owned by someone else: it opens read-only (DATA-004). */
+  isReadOnlyFile: (file: any) => boolean;
   setIsPublicView: (v: boolean) => void;
   publicData: any;
 

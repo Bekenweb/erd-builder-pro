@@ -116,10 +116,12 @@ describe("Cloud ERD discussions scope", () => {
     await withServer(async (url) => {
       const response = await fetch(`${url}/api/projects/7/comments/markers?feature_type=diagram&file_id=file-a`);
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ markers: [{ anchorType: 'table', anchorId: 'entity-a', status: 'resolved', messageCount: 5, unreadCount: 2, replyCount: 4, rootMessage: { anchorType: 'table', anchorId: 'entity-a', authorId: 'member-a', authorName: 'Member A', body: 'First', createdAt: '2026-09-28T00:00:00Z' } }] });
+      expect(await response.json()).toEqual({ markers: [{ anchorType: 'table', anchorId: 'entity-a', status: 'resolved', messageCount: 5, unreadCount: 2, replyCount: 4, rootMessage: { anchorType: 'table', anchorId: 'entity-a', authorId: 'member-a', authorName: 'Member A', body: 'First', createdAt: '2026-09-28T00:00:00Z' }, latestMessage: { anchorType: 'table', anchorId: 'entity-a', authorId: 'member-a', authorName: 'Member A', body: 'First', createdAt: '2026-09-28T00:00:00Z' } }] });
       const rootQuery = mocks.queryRaw.mock.calls.find(([query]) => String(query).includes('ROW_NUMBER()'))?.[0];
       expect(String(rootQuery)).toContain('ORDER BY m."created_at" ASC');
       expect(String(rootQuery)).not.toContain('"rank" <= 3');
+      const latestQuery = mocks.queryRaw.mock.calls.map(([query]) => String(query)).find((query) => query.includes('ROW_NUMBER()') && query.includes('ORDER BY m."created_at" DESC'));
+      expect(latestQuery).toBeTruthy();
     });
   });
 
