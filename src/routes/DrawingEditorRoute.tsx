@@ -8,6 +8,8 @@ import type { TeamsState } from '@/hooks/useTeams';
 
 const DrawingsView = React.lazy(() => import('@/components/views/DrawingsView').then(m => ({ default: m.DrawingsView })));
 
+const DRAWING_COMMENTS_ENABLED = false;
+
 export function DrawingEditorRoute() {
   const ctx = useWorkspace();
   const teamState = useOutletContext<TeamsState>();
@@ -21,7 +23,8 @@ export function DrawingEditorRoute() {
   const drawingFileId = activeDrawing?.uid ?? activeDrawingId;
   const drawingProject = ctx.projects.find((project: any) => String(project.id) === String(drawingProjectId));
   const drawingProjectTeamId = drawingProject?.team_id ?? drawingProject?.teamId;
-  const commentsEnabled = Boolean(!isPublicView && !ctx.isGuest && drawingProjectTeamId && teamState.activeTeamId
+  // COL-005: per-element comments on Drawings are paused until they get the same comment window as ERD and Flowchart.
+  const commentsEnabled = DRAWING_COMMENTS_ENABLED && Boolean(!isPublicView && !ctx.isGuest && drawingProjectTeamId && teamState.activeTeamId
     && String(drawingProjectTeamId) === String(teamState.activeTeamId));
   const commentMarkers = useMemo<FileCommentMarkerConfig | null>(() => (
     commentsEnabled && drawingProjectId != null && drawingProjectTeamId && ctx.user?.id && drawingFileId != null
