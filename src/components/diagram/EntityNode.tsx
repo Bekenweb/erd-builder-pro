@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/context-menu";
 import { useEntityNodeContext } from '@/contexts/EntityNodeContext';
 import { useAIAction } from '@/contexts/AIActionContext';
-import { CommentMarker, useERDComments } from './ERDComments';
+import { CommentMarker, OPEN_COMMENT_EVENT, useERDComments } from './ERDComments';
 
 import {
   AlertDialog,
@@ -172,7 +172,7 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
   const handleComment = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    window.dispatchEvent(new CustomEvent('erd-comment-open-request', { detail: { type: 'table', id } }));
+    window.dispatchEvent(new CustomEvent(OPEN_COMMENT_EVENT, { detail: { type: 'table', id } }));
   };
 
   const confirmDelete = () => {

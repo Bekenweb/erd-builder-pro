@@ -3,7 +3,7 @@ import { useWorkspace } from '@/providers/WorkspaceProvider';
 import { useOutletContext, useParams } from 'react-router-dom';
 import { GitBranch } from 'lucide-react';
 import { ProjectFileTabs } from '@/components/ProjectFileTabs';
-import { FileCommentMarkersProvider, type FileCommentMarkerConfig } from '@/components/diagram/FileCommentMarkers';
+import { ERDCommentsProvider, type ERDCommentsConfig } from '@/components/diagram/ERDComments';
 import type { TeamsState } from '@/hooks/useTeams';
 
 import { FlowchartView } from '@/components/views/FlowchartView';
@@ -24,12 +24,13 @@ export function FlowchartEditorRoute() {
   const flowchartProjectTeamId = flowchartProject?.team_id ?? flowchartProject?.teamId;
   const commentsEnabled = Boolean(!isPublicView && !ctx.isGuest && flowchartProjectTeamId && teamState.activeTeamId
     && String(flowchartProjectTeamId) === String(teamState.activeTeamId));
-  const commentMarkers = useMemo<FileCommentMarkerConfig | null>(() => (
+  const commentMarkers = useMemo<ERDCommentsConfig | null>(() => (
     commentsEnabled && flowchartProjectId != null && flowchartProjectTeamId && ctx.user?.id && flowchartFileId != null
       ? {
           projectId: String(flowchartProjectId),
           teamId: String(flowchartProjectTeamId),
           fileId: String(flowchartFileId),
+          userId: String(ctx.user.id),
           featureType: 'flowchart',
         }
       : null
@@ -102,7 +103,7 @@ export function FlowchartEditorRoute() {
     <div className="flex flex-col flex-1 overflow-hidden">
       <ProjectFileTabs currentView="flowchart" />
       {commentMarkers
-        ? <FileCommentMarkersProvider key={[commentMarkers.projectId, commentMarkers.teamId, commentMarkers.featureType, commentMarkers.fileId].join(':')} config={commentMarkers}>{flowchartView}</FileCommentMarkersProvider>
+        ? <ERDCommentsProvider key={[commentMarkers.projectId, commentMarkers.teamId, commentMarkers.featureType, commentMarkers.fileId].join(':')} config={commentMarkers}>{flowchartView}</ERDCommentsProvider>
         : flowchartView}
     </div>
   );

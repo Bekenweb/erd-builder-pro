@@ -12,8 +12,14 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import ConfirmModal from '@/components/ConfirmModal';
 import { apiFetch } from '@/lib/api';
 
-export type CommentAnchor = { type: 'table' | 'relationship'; id: string };
-export type ERDCommentsConfig = { projectId: string; teamId: string; fileId: string; userId: string };
+export type CommentAnchor = { type: 'table' | 'relationship' | 'shape'; id: string };
+export type CommentFeature = 'diagram' | 'flowchart';
+/** `featureType` defaults to the ERD ('diagram'); the Flowchart editor passes 'flowchart'. */
+export type ERDCommentsConfig = { projectId: string; teamId: string; fileId: string; userId: string; featureType?: CommentFeature };
+const ANCHORS_BY_FEATURE: Record<CommentFeature, ReadonlyArray<CommentAnchor['type']>> = { diagram: ['table', 'relationship'], flowchart: ['shape'] };
+const ANCHOR_LABEL: Record<CommentAnchor['type'], string> = { table: 'Table', relationship: 'Relationship', shape: 'Shape' };
+/** Fired by node menus to open the comment window for one anchor of the file being edited. */
+export const OPEN_COMMENT_EVENT = 'file-comment-open-request';
 type Preview = { authorId?: string; authorName: string; body: string; createdAt: string };
 type Marker = { anchorType: CommentAnchor['type']; anchorId: string; status: 'open' | 'resolved'; messageCount: number; unreadCount: number; replyCount: number; rootMessage: Preview | null };
 type Thread = { id: string; status: 'open' | 'resolved'; createdBy: string };
@@ -77,7 +83,8 @@ async function request(path: string, init?: RequestInit): Promise<any> {
 
 export function ERDCommentsProvider({ config, children }: { config: ERDCommentsConfig; children: ReactNode }) {
   const base = `/api/projects/${encodeURIComponent(config.projectId)}/comments`;
-  const scope = `feature_type=diagram&file_id=${encodeURIComponent(config.fileId)}`;
+  const featureType = config.featureType ?? 'diagram';
+  const scope = `feature_type=${featureType}&file_id=${encodeURIComponent(config.fileId)}`;
   const [markers, setMarkers] = useState(new Map<string, Marker>());
   const [active, setActive] = useState<CommentAnchor | null>(null);
   const [anchorElement, setAnchorElement] = useState<HTMLElement | null>(null);
@@ -242,21 +249,21 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
     };
     const onOpen = (event: Event) => {
       const anchor = (event as CustomEvent<CommentAnchor>).detail;
-      if (anchor && ['table', 'relationship'].includes(anchor.type) && anchor.id) requestOpen(anchor);
+      if (anchor && ANCHORS_BY_FEATURE[featureType].includes(anchor.type) && anchor.id) requestOpen(anchor);
     };
     window.addEventListener('collaboration-updated', onUpdate);
     window.addEventListener('cloud-workspace-sync', onWorkspaceSync);
     window.addEventListener('cloud-live-sync-reconnected', onReconnect);
-    window.addEventListener('erd-comment-open-request', onOpen);
+    window.addEventListener(OPEN_COMMENT_EVENT, onOpen);
     const interval = window.setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, 15000);
     return () => {
       window.removeEventListener('collaboration-updated', onUpdate);
       window.removeEventListener('cloud-workspace-sync', onWorkspaceSync);
       window.removeEventListener('cloud-live-sync-reconnected', onReconnect);
-      window.removeEventListener('erd-comment-open-request', onOpen);
+      window.removeEventListener(OPEN_COMMENT_EVENT, onOpen);
       window.clearInterval(interval);
     };
-  }, [active, config.projectId, config.teamId, loadAnchor, loadMarkers, requestOpen]);
+  }, [active, config.projectId, config.teamId, featureType, loadAnchor, loadMarkers, requestOpen]);
 
   const activeThread = threads[0] ?? null;
   const activeMarker = active ? markers.get(keyOf(active)) : undefined;
@@ -268,6 +275,13 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
     editTextarea.current.focus();
     editTextarea.current.setSelectionRange(editTextarea.current.value.length, editTextarea.current.value.length);
   }, [editingMessageId]);
+
+  // Typing right after choosing "Comment" must land in the input, as it does on a Notes card.
+  useEffect(() => {
+    if (!active || !anchorElement || loading || threadResolved) return;
+    const timer = window.setTimeout(() => textarea.current?.focus(), 80);
+    return () => window.clearTimeout(timer);
+  }, [active, anchorElement, loading, threadResolved]);
 
   const notifyLocalUpdate = () => window.dispatchEvent(new CustomEvent('collaboration-updated', { detail: { teamId: config.teamId, projectId: config.projectId } }));
 
@@ -362,7 +376,7 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
       } else {
         await request(`${base}?${scope}`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ body, context: { type: active.type, id: active.id, featureType: 'diagram', fileId: config.fileId } }),
+          body: JSON.stringify({ body, context: { type: active.type, id: active.id, featureType, fileId: config.fileId } }),
         });
       }
       setDraft('');
@@ -384,7 +398,7 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
         if (!next && hasUnsent) { setDiscardTarget({ anchor: null }); return; }
         if (!next) { setActive(null); setAnchorElement(null); requestId.current++; }
       }}>
-        <PopoverContent anchor={anchorElement} side="right" align="start" sideOffset={12} className="z-200 flex max-h-[min(380px,70vh)] w-[min(300px,calc(100vw-24px))] flex-col gap-0 overflow-hidden p-0" aria-label="Table or relationship comments">
+        <PopoverContent anchor={anchorElement} side="right" align="start" sideOffset={12} className="z-200 flex max-h-[min(380px,70vh)] w-[min(300px,calc(100vw-24px))] flex-col gap-0 overflow-hidden p-0" aria-label="Comments">
           {activeThread && <div className="absolute right-1.5 top-1.5 z-10"><DropdownMenu>
               <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" className="size-5" aria-label="Comment thread actions"><MoreHorizontal aria-hidden="true" className="size-3.5" /></Button>} />
               <DropdownMenuContent align="end" className="w-48" positionerClassName="z-[210]">
@@ -496,7 +510,7 @@ export function CommentMarker({ anchor }: { anchor: CommentAnchor }) {
   const resolved = marker?.status === 'resolved';
   return <HoverCard openDelay={180} closeDelay={100}>
     <HoverCardTrigger asChild>
-      <button ref={element} type="button" className={`nodrag nopan flex h-4 min-w-4 items-center justify-center rounded-full border-0 px-1 text-[9px] font-bold leading-none shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 ${resolved ? 'bg-foreground text-background hover:opacity-80 focus-visible:outline-foreground' : 'bg-sky-500 text-white hover:bg-sky-600 focus-visible:outline-sky-500 dark:bg-sky-400 dark:text-slate-950 dark:hover:bg-sky-300'}`} aria-label={`${anchor.type === 'table' ? 'Table' : 'Relationship'} comments${resolved ? ', resolved' : count ? `, ${count} unread` : ''}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); comments.open(anchor); }}>
+      <button ref={element} type="button" className={`nodrag nopan flex h-4 min-w-4 items-center justify-center rounded-full border-0 px-1 text-[9px] font-bold leading-none shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 ${resolved ? 'bg-foreground text-background hover:opacity-80 focus-visible:outline-foreground' : 'bg-sky-500 text-white hover:bg-sky-600 focus-visible:outline-sky-500 dark:bg-sky-400 dark:text-slate-950 dark:hover:bg-sky-300'}`} aria-label={`${ANCHOR_LABEL[anchor.type]} comments${resolved ? ', resolved' : count ? `, ${count} unread` : ''}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); comments.open(anchor); }}>
         {resolved ? <Check aria-hidden="true" className="size-2.5 stroke-[3]" /> : count > 0 ? (count > 3 ? '3+' : count) : <span className="sr-only">Comments</span>}
       </button>
     </HoverCardTrigger>

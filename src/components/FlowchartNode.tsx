@@ -2,7 +2,7 @@ import React, { useState, memo, useMemo } from 'react';
 import { Handle, Position, NodeResizer } from '@xyflow/react';
 import { MessageSquare } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { FileCommentMarker } from '@/components/diagram/FileCommentMarkers';
+import { CommentMarker, OPEN_COMMENT_EVENT } from '@/components/diagram/ERDComments';
 
 export type FlowchartShape = 'rectangle' | 'oval' | 'diamond' | 'parallelogram' | 'database' | 'document' | 'cloud' | 'circle';
 
@@ -199,7 +199,7 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
       {shapeBackground}
 
       {data._commentsEnabled && <div className="absolute -right-2 -top-2 z-30">
-        <FileCommentMarker anchor={{ type: 'shape', id }} />
+        <CommentMarker anchor={{ type: 'shape', id }} />
       </div>}
 
       {/* Universal Handles: All 4 directions support both incoming and outgoing connections */}
@@ -235,8 +235,8 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
     <ContextMenu>
       <ContextMenuTrigger className="contents">{content}</ContextMenuTrigger>
       <ContextMenuContent className="min-w-36" positionerClassName="z-[210]">
-        <ContextMenuItem onClick={() => window.dispatchEvent(new CustomEvent("project-comment-open-request", {
-          detail: { featureType: "flowchart", type: "shape", id },
+        <ContextMenuItem onClick={() => window.dispatchEvent(new CustomEvent(OPEN_COMMENT_EVENT, {
+          detail: { type: "shape", id },
         }))}>
           <MessageSquare aria-hidden="true" />
           Comment

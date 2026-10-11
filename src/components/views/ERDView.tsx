@@ -26,7 +26,7 @@ import { Plus, Upload, Undo2, Redo2, LayoutGrid, RefreshCw, Database, Download, 
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import EntityNode from '../diagram/EntityNode';
-import { CommentMarker, ERDCommentsProvider, type ERDCommentsConfig } from '../diagram/ERDComments';
+import { CommentMarker, ERDCommentsProvider, OPEN_COMMENT_EVENT, type ERDCommentsConfig } from '../diagram/ERDComments';
 import { SchemaDiffOverlay } from '../diagram/SchemaDiffOverlay';
 import { Entity } from '@/types';
 import { useAIAction } from '@/contexts/AIActionContext';
@@ -181,7 +181,7 @@ const ERDViewComponent = ({
 
   const handleEdgeComment = useCallback(() => {
     if (!edgeContextMenu) return;
-    window.dispatchEvent(new CustomEvent('erd-comment-open-request', { detail: { type: 'relationship', id: edgeContextMenu.id } }));
+    window.dispatchEvent(new CustomEvent(OPEN_COMMENT_EVENT, { detail: { type: 'relationship', id: edgeContextMenu.id } }));
     setEdgeContextMenu(null);
   }, [edgeContextMenu]);
 
