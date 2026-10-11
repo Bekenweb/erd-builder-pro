@@ -224,7 +224,8 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
     [data.columns]
   );
 
-  const contextMenuEnabled = !isViewOnly && !isNotesCompanion && !isProductionDb && !data.isDiffMode;
+  // View-only members keep the menu for its Comment item; the edit items below stay behind !isReadOnly.
+  const contextMenuEnabled = (!isViewOnly || Boolean(comments)) && !isNotesCompanion && !isProductionDb && !data.isDiffMode;
 
   const table = (
     <div className="relative">
@@ -258,7 +259,7 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
             )}
           </div>
           
-          {!isReadOnly && !isNotesCompanion && (
+          {!isNotesCompanion && (!isReadOnly || (isViewOnly && Boolean(comments) && !data.isDiffMode && !isProductionDb)) && (
             <DropdownMenu>
               <DropdownMenuTrigger 
                 className="nodrag nopan p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
@@ -275,19 +276,33 @@ const EntityNode = ({ data, id, selected }: EntityNodeProps) => {
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >
-                <DropdownMenuItem onClick={handleEdit} className="cursor-pointer hover:bg-muted focus:bg-muted">
-                  <Pencil className="w-4 h-4 mr-2" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDuplicate} className="cursor-pointer hover:bg-muted focus:bg-muted">
-                  <Copy className="w-4 h-4 mr-2" />
-                  Duplicate
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-border" />
-                <DropdownMenuItem onClick={handleDeleteClick} className="cursor-pointer text-destructive focus:text-destructive hover:bg-destructive/10 focus:bg-destructive/10">
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Delete Table
-                </DropdownMenuItem>
+                {!isReadOnly && (
+                  <>
+                    <DropdownMenuItem onClick={handleEdit} className="cursor-pointer hover:bg-muted focus:bg-muted">
+                      <Pencil className="w-4 h-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleDuplicate} className="cursor-pointer hover:bg-muted focus:bg-muted">
+                      <Copy className="w-4 h-4 mr-2" />
+                      Duplicate
+                    </DropdownMenuItem>
+                  </>
+                )}
+                {comments && (
+                  <DropdownMenuItem onClick={handleComment} className="cursor-pointer hover:bg-muted focus:bg-muted">
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Comment
+                  </DropdownMenuItem>
+                )}
+                {!isReadOnly && (
+                  <>
+                    <DropdownMenuSeparator className="bg-border" />
+                    <DropdownMenuItem onClick={handleDeleteClick} className="cursor-pointer text-destructive focus:text-destructive hover:bg-destructive/10 focus:bg-destructive/10">
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Table
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

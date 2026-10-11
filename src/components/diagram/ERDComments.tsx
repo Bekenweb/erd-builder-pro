@@ -1,12 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Check, CheckCircle2, MoreHorizontal, RotateCcw, Send, Trash2 } from 'lucide-react';
+import { ArrowUp, Check, CheckCircle2, MoreHorizontal, RotateCcw, Trash2, X } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { toast } from 'sonner';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { Portal as HoverCardPortal } from '@radix-ui/react-hover-card';
 import { Popover, PopoverContent } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { CommentAvatar, shortCommentTime } from '@/components/comments/CommentThreadView';
 import { MessageScroller, MessageScrollerContent, MessageScrollerProvider, MessageScrollerViewport } from '@/components/ui/message-scroller';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import ConfirmModal from '@/components/ConfirmModal';
@@ -58,10 +58,6 @@ export function mergeLiveMessages(current: MessageHistoryState, incoming: Messag
   };
 }
 
-function avatarInitials(name: string): string {
-  return name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
-}
-
 function messageTime(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '' : formatDistanceToNowStrict(date, { addSuffix: true });
@@ -96,6 +92,8 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  // Set while asking to discard unsent text; `anchor` is the thread to open afterwards, or null to just close.
+  const [discardTarget, setDiscardTarget] = useState<{ anchor: CommentAnchor | null } | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const editTextarea = useRef<HTMLTextAreaElement>(null);
   const requestId = useRef(0);
@@ -207,6 +205,20 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
     void loadAnchor(anchor);
   }, [loadAnchor]);
 
+  const hasUnsent = draft.trim() !== '' || (editingMessageId !== null && editDraft !== (messages.find((message) => message.id === editingMessageId)?.body ?? ''));
+  const guard = useRef({ hasUnsent: false, active: null as CommentAnchor | null });
+  guard.current = { hasUnsent, active };
+
+  // Opening another thread (or the same one again) must not silently drop unsent text.
+  const requestOpen = useCallback((anchor: CommentAnchor) => {
+    const { hasUnsent: dirty, active: current } = guard.current;
+    if (dirty && current) {
+      if (current.type !== anchor.type || current.id !== anchor.id) setDiscardTarget({ anchor });
+      return;
+    }
+    open(anchor);
+  }, [open]);
+
   useEffect(() => {
     void loadMarkers();
     const refresh = () => {
@@ -230,7 +242,7 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
     };
     const onOpen = (event: Event) => {
       const anchor = (event as CustomEvent<CommentAnchor>).detail;
-      if (anchor && ['table', 'relationship'].includes(anchor.type) && anchor.id) open(anchor);
+      if (anchor && ['table', 'relationship'].includes(anchor.type) && anchor.id) requestOpen(anchor);
     };
     window.addEventListener('collaboration-updated', onUpdate);
     window.addEventListener('cloud-workspace-sync', onWorkspaceSync);
@@ -244,7 +256,7 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
       window.removeEventListener('erd-comment-open-request', onOpen);
       window.clearInterval(interval);
     };
-  }, [active, config.projectId, config.teamId, loadAnchor, loadMarkers, open]);
+  }, [active, config.projectId, config.teamId, loadAnchor, loadMarkers, requestOpen]);
 
   const activeThread = threads[0] ?? null;
   const activeMarker = active ? markers.get(keyOf(active)) : undefined;
@@ -363,17 +375,18 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
     } finally { setSending(false); }
   };
 
-  const value = useMemo(() => ({ markers, active, open, setAnchorElement }), [markers, active, open]);
+  const value = useMemo(() => ({ markers, active, open: requestOpen, setAnchorElement }), [markers, active, requestOpen]);
   return (
     <Context.Provider value={value}>
       {children}
       <Popover open={!!active && !!anchorElement} onOpenChange={(next) => {
-        if (!next && deleteDialogOpen) return;
+        if (!next && (deleteDialogOpen || discardTarget)) return;
+        if (!next && hasUnsent) { setDiscardTarget({ anchor: null }); return; }
         if (!next) { setActive(null); setAnchorElement(null); requestId.current++; }
       }}>
-        <PopoverContent anchor={anchorElement} side="right" align="start" sideOffset={12} className="z-200 flex max-h-[min(420px,70vh)] w-[min(340px,calc(100vw-24px))] flex-col gap-0 overflow-hidden p-0" aria-label="Table or relationship comments">
-          {activeThread && <div className="absolute right-2 top-2 z-10"><DropdownMenu>
-              <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Comment thread actions"><MoreHorizontal aria-hidden="true" className="size-4" /></Button>} />
+        <PopoverContent anchor={anchorElement} side="right" align="start" sideOffset={12} className="z-200 flex max-h-[min(380px,70vh)] w-[min(300px,calc(100vw-24px))] flex-col gap-0 overflow-hidden p-0" aria-label="Table or relationship comments">
+          {activeThread && <div className="absolute right-1.5 top-1.5 z-10"><DropdownMenu>
+              <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" className="size-5" aria-label="Comment thread actions"><MoreHorizontal aria-hidden="true" className="size-3.5" /></Button>} />
               <DropdownMenuContent align="end" className="w-48" positionerClassName="z-[210]">
                 <DropdownMenuItem onClick={() => void changeStatus()} disabled={sending}>
                   {activeThread.status === 'open' ? <CheckCircle2 aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
@@ -390,34 +403,30 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
             </DropdownMenu></div>}
           {(loading || messages.length > 0) && <MessageScrollerProvider key={active ? keyOf(active) : 'comment-history'} defaultScrollPosition="end">
             <MessageScroller className="flex-1">
-              <MessageScrollerViewport aria-label="Comment history" className="px-3 py-2.5 pr-10">
-                <MessageScrollerContent className="gap-4">
-                  {loading && messages.length === 0 ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+              <MessageScrollerViewport aria-label="Comment history" className="px-2 py-2">
+                <MessageScrollerContent className="gap-2">
+                  {loading && messages.length === 0 ? <p className="text-xs text-muted-foreground">Loading…</p> : null}
                   {messageHistory.hasMore && <div className="flex justify-center">
-                    <Button type="button" size="sm" variant="ghost" onClick={() => void loadOlderMessages()} disabled={loadingOlder}>
+                    <Button type="button" size="xs" variant="ghost" onClick={() => void loadOlderMessages()} disabled={loadingOlder}>
                       {loadingOlder ? 'Loading…' : 'Load earlier comments'}
                     </Button>
                   </div>}
-                  <div className="space-y-4">
-              {messages.map((message) => <div key={message.id} className="flex gap-2.5 text-sm">
-                <Avatar className="size-8 bg-cyan-600 text-white" aria-label={message.authorName}>
-                  <AvatarFallback className="bg-cyan-600 text-xs font-medium text-white">{avatarInitials(message.authorName)}</AvatarFallback>
-                </Avatar>
+                  <div className="space-y-2.5">
+              {messages.map((message, index) => <div key={message.id} className="flex gap-2">
+                <CommentAvatar name={message.authorName} className="size-5 text-[10px]" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-baseline gap-2">
-                    <span className="truncate font-medium">{message.authorName}</span>
-                    <time className="shrink-0 text-xs text-muted-foreground" dateTime={message.createdAt}>{messageTime(message.createdAt)}</time>
-                    {message.authorId === config.userId && <button type="button" className="shrink-0 text-xs text-blue-600 hover:underline dark:text-sky-400" onClick={() => startEditing(message)}>Edit</button>}
+                  <div className={`flex min-w-0 items-baseline gap-2${index === 0 && activeThread ? ' pr-6' : ''}`}>
+                    <span className="truncate text-xs font-semibold">{message.authorName}</span>
+                    <time className="shrink-0 text-[11px] text-muted-foreground" dateTime={message.createdAt} title={messageTime(message.createdAt)}>{shortCommentTime(message.createdAt)}</time>
+                    {message.authorId === config.userId && editingMessageId !== message.id && <button type="button" className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground hover:underline" onClick={() => startEditing(message)}>Edit</button>}
                   </div>
                   {editingMessageId === message.id ? (
-                    <form onSubmit={saveEdit} className="mt-1.5 space-y-2">
-                      <textarea ref={editTextarea} rows={1} maxLength={4000} value={editDraft} onChange={(event) => { setEditDraft(event.target.value); resizeTextarea(event.target); }} className="max-h-36 min-h-9 w-full resize-none rounded-md border bg-background px-2.5 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Edit comment" />
-                      <div className="flex justify-end gap-1.5">
-                        <Button type="button" variant="ghost" size="sm" onClick={() => { setEditingMessageId(null); setEditDraft(''); }} disabled={sending}>Cancel</Button>
-                        <Button type="submit" size="sm" disabled={!editDraft.trim() || sending}>Save</Button>
-                      </div>
+                    <form onSubmit={saveEdit} className="mt-1 flex items-end gap-1 rounded-md border bg-background px-2 py-1 focus-within:border-ring">
+                      <textarea ref={editTextarea} rows={1} maxLength={4000} value={editDraft} onChange={(event) => { setEditDraft(event.target.value); resizeTextarea(event.target); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} className="min-w-0 max-h-[120px] min-h-5 flex-1 resize-none bg-transparent text-xs outline-none" aria-label="Edit comment" />
+                      <button type="button" aria-label="Cancel edit" disabled={sending} onClick={() => { setEditingMessageId(null); setEditDraft(''); }} className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground disabled:opacity-40"><X aria-hidden="true" className="size-3" /></button>
+                      <button type="submit" aria-label="Save comment" disabled={!editDraft.trim() || sending} className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white disabled:opacity-40"><Check aria-hidden="true" className="size-3" /></button>
                     </form>
-                  ) : <p className="mt-1 whitespace-pre-wrap wrap-break-word text-foreground/90">{message.body}</p>}
+                  ) : <p className="whitespace-pre-wrap wrap-break-word text-xs leading-snug">{message.body}</p>}
                 </div>
               </div>)}
                   </div>
@@ -425,17 +434,39 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
               </MessageScrollerViewport>
             </MessageScroller>
           </MessageScrollerProvider>}
-          <form onSubmit={submit} className="flex shrink-0 items-end gap-2 p-2">
+          <form onSubmit={submit} className={`mx-2 mb-2 flex shrink-0 items-end gap-1.5 rounded-md border bg-background px-2 py-1 focus-within:border-ring ${loading || messages.length > 0 ? 'mt-0' : 'mt-2'}`}>
             <label className="sr-only" htmlFor="erd-comment-reply">Write a comment</label>
             <textarea ref={textarea} id="erd-comment-reply" rows={1} maxLength={4000} value={draft} disabled={loading || threadResolved || sending} onChange={(event) => {
               setDraft(event.target.value);
               resizeTextarea(event.target);
-            }} placeholder={threadResolved ? 'Reopen thread to comment…' : 'Write a comment…'} className="min-h-9 max-h-36 flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60" />
-            <Button type="submit" size="icon" className="size-9 shrink-0" aria-label="Send comment" disabled={!draft.trim() || loading || threadResolved || sending}><Send aria-hidden="true" className="size-4" /></Button>
+            }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={threadResolved ? 'Reopen thread to comment…' : messages.length ? 'Reply…' : 'Add a comment…'} className="min-w-0 max-h-[120px] min-h-5 flex-1 resize-none bg-transparent text-xs outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60" />
+            <button type="submit" aria-label="Send comment" disabled={!draft.trim() || loading || threadResolved || sending} className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white disabled:opacity-40"><ArrowUp aria-hidden="true" className="size-3" /></button>
           </form>
-          {error ? <p role="alert" className="px-3 pb-3 text-xs text-destructive">{error}</p> : null}
+          {error ? <p role="alert" className="px-3 pb-2 text-xs text-destructive">{error}</p> : null}
         </PopoverContent>
       </Popover>
+      <ConfirmModal
+        isOpen={discardTarget !== null}
+        title="Discard unsent comment?"
+        message="You have text that hasn't been sent or saved. If you leave now, it will be lost."
+        confirmText="Discard"
+        cancelText="Cancel"
+        variant="warning"
+        onCancel={() => {
+          setDiscardTarget(null);
+          // The dialog hands focus back to the page; return it to the text being written.
+          window.setTimeout(() => (editingMessageId ? editTextarea : textarea).current?.focus(), 150);
+        }}
+        onConfirm={() => {
+          const target = discardTarget?.anchor ?? null;
+          setDiscardTarget(null);
+          setDraft('');
+          setEditingMessageId(null);
+          setEditDraft('');
+          if (target) open(target);
+          else { setActive(null); setAnchorElement(null); requestId.current++; }
+        }}
+      />
       <ConfirmModal
         isOpen={deleteDialogOpen}
         title="Delete thread?"
@@ -469,16 +500,16 @@ export function CommentMarker({ anchor }: { anchor: CommentAnchor }) {
         {resolved ? <Check aria-hidden="true" className="size-2.5 stroke-[3]" /> : count > 0 ? (count > 3 ? '3+' : count) : <span className="sr-only">Comments</span>}
       </button>
     </HoverCardTrigger>
-    {!active && marker?.rootMessage && <HoverCardPortal><HoverCardContent side="right" sideOffset={8} className="w-[min(22rem,calc(100vw-1rem))] p-3" aria-label="Comment preview">
-      <div className="flex gap-2.5">
-        <Avatar className="size-8 shrink-0 bg-cyan-600 text-white" aria-hidden="true"><AvatarFallback className="bg-cyan-600 text-[10px] text-white">{avatarInitials(marker.rootMessage.authorName)}</AvatarFallback></Avatar>
+    {!active && marker?.rootMessage && <HoverCardPortal><HoverCardContent side="right" sideOffset={8} className="w-[min(18rem,calc(100vw-1rem))] p-2.5" aria-label="Comment preview">
+      <div className="flex gap-2">
+        <CommentAvatar name={marker.rootMessage.authorName} className="size-5 text-[10px]" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-semibold">{marker.rootMessage.authorName}</span>
-            {marker.rootMessage.createdAt ? <time className="shrink-0 text-xs text-muted-foreground" dateTime={marker.rootMessage.createdAt}>{messageTime(marker.rootMessage.createdAt)}</time> : null}
+            <span className="truncate text-xs font-semibold">{marker.rootMessage.authorName}</span>
+            {marker.rootMessage.createdAt ? <time className="shrink-0 text-[11px] text-muted-foreground" dateTime={marker.rootMessage.createdAt} title={messageTime(marker.rootMessage.createdAt)}>{shortCommentTime(marker.rootMessage.createdAt)}</time> : null}
           </div>
-          <p className="mt-1 line-clamp-3 break-words text-sm text-foreground/90">{marker.rootMessage.body}</p>
-          {marker.replyCount > 0 ? <p className="mt-2 text-xs text-muted-foreground">{marker.replyCount} {marker.replyCount === 1 ? 'reply' : 'replies'}</p> : null}
+          <p className="line-clamp-3 break-words text-xs leading-snug">{marker.rootMessage.body}</p>
+          {marker.replyCount > 0 ? <p className="mt-1 text-[11px] text-muted-foreground">{marker.replyCount} {marker.replyCount === 1 ? 'reply' : 'replies'}</p> : null}
         </div>
       </div>
     </HoverCardContent></HoverCardPortal>}
