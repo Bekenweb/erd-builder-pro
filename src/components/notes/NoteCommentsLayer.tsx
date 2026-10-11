@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Check, Maximize2, MessageSquare, MessageSquarePlus } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { cn } from '@/lib/utils';
+import ConfirmModal from '@/components/ConfirmModal';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { CommentAvatar, CommentThreadView, shortCommentTime } from '@/components/comments/CommentThreadView';
 import { useCommentMarkers } from '@/hooks/useCommentMarkers';
@@ -45,6 +46,7 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
   const [tops, setTops] = useState<Map<string, number>>(new Map());
   const heights = useRef(new Map<string, number>());
   const dirty = useRef(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   const items = useMemo<Item[]>(() => {
     const open = markers.filter((marker) => marker.status === 'open').map((marker): Item => ({ id: marker.anchorId, marker }));
@@ -59,6 +61,11 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
     setComposeId((current) => (current && !markers.some((marker) => marker.anchorId === current) ? null : current));
     dirty.current = false;
   }, [markers]);
+  // Unsent text is never dropped silently: ask first.
+  const requestCollapse = useCallback(() => {
+    if (dirty.current) setConfirmDiscard(true);
+    else collapse();
+  }, [collapse]);
 
   // The composer opens for a block as soon as its anchor has been saved (see useNoteCommentPersistence).
   useEffect(() => {
@@ -80,18 +87,17 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
     if (!editor.isDestroyed) setNoteCommentDecorations(editor, { open: openIds, hot: hotId });
   }, [editor, openIds, hotId]);
 
-  // An open card shrinks again when the user clicks anywhere else, unless a reply is being typed.
+  // An open card shrinks again when the user clicks anywhere else; unsent text asks for confirmation first.
   useEffect(() => {
-    if (!activeId || !wide) return;
+    if (!activeId || !wide || confirmDiscard) return;
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Element | null;
       if (target?.closest?.(`[data-comment-card="${CSS.escape(activeId)}"]`)) return;
-      if (dirty.current) return;
-      collapse();
+      requestCollapse();
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
-  }, [activeId, wide, collapse]);
+  }, [activeId, wide, confirmDiscard, requestCollapse]);
 
   // Re-measure when the document, the work area, or the window changes.
   useEffect(() => {
@@ -274,7 +280,7 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
                 autoFocus
                 showActions={false}
                 onDirtyChange={(isDirty) => { dirty.current = isDirty; }}
-                onClose={collapse}
+                onClose={requestCollapse}
               />
             ) : (
               <CardPreview marker={item.marker} expanded={hot} onOpen={() => setActiveId(item.id)} />
@@ -303,7 +309,7 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
       })}
 
       {!wide && (
-        <Sheet open={Boolean(activeItem)} onOpenChange={(open) => { if (!open) collapse(); }}>
+        <Sheet open={Boolean(activeItem)} onOpenChange={(open) => { if (!open) requestCollapse(); }}>
           <SheetContent side="bottom" className="pointer-events-auto max-h-[85dvh] gap-2 p-4">
             <SheetHeader className="p-0">
               <SheetTitle className="text-base">Comments</SheetTitle>
@@ -315,6 +321,16 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
           </SheetContent>
         </Sheet>
       )}
+      <ConfirmModal
+        isOpen={confirmDiscard}
+        title="Discard unsent comment?"
+        message="You have text that hasn't been sent. If you leave now, it will be lost."
+        confirmText="Discard"
+        cancelText="Cancel"
+        variant="warning"
+        onCancel={() => setConfirmDiscard(false)}
+        onConfirm={() => { setConfirmDiscard(false); collapse(); }}
+      />
     </div>
   );
 }

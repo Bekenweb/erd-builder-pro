@@ -583,6 +583,7 @@ function AppLayoutInner() {
       projectId={String(activeProjectId)}
       teamId={discussionTeamId}
       userId={user?.id ? String(user.id) : undefined}
+      userName={user?.name || user?.email}
       fileContext={discussionFileContext}
       anchorContext={discussionAnchorContext}
       onContextSelected={handleDiscussionContextSelected}
