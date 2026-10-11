@@ -571,6 +571,12 @@ function AppLayoutInner() {
       window.setTimeout(() => handleDiscussionAnchorSelected(context.anchorType as 'table' | 'relationship', context.anchorId), 0);
     }
   }, [diagrams, discussionFileContext, flowcharts, handleDiscussionAnchorSelected, navigate, notes, drawings]);
+  const noteAnchorPreview = useCallback((anchorId: string) => {
+    if (!activeNote?.content) return null;
+    const block = new DOMParser().parseFromString(String(activeNote.content), 'text/html')
+      .querySelector(`[data-comment-anchor-id="${CSS.escape(anchorId)}"]`);
+    return block?.textContent?.trim() || null;
+  }, [activeNote?.content]);
   const discussionPanel = activeProjectId && discussionFileContext && discussionTeamId ? (
     <DiscussionsPanel
       key={`${discussionTeamId}:${activeProjectId}:${discussionFileContext.featureType}:${discussionFileContext.fileId}`}
@@ -580,6 +586,7 @@ function AppLayoutInner() {
       fileContext={discussionFileContext}
       anchorContext={discussionAnchorContext}
       onContextSelected={handleDiscussionContextSelected}
+      anchorPreview={discussionFileContext.featureType === 'note' ? noteAnchorPreview : undefined}
     />
   ) : null;
 

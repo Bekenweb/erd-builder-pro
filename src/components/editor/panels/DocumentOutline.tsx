@@ -39,22 +39,16 @@ export function DocumentOutline({ headings, scrollToHeading, side = 'right' }: D
         <div className="pointer-events-auto sticky top-1/2 -translate-y-1/2">
           <TooltipProvider delay={0}>
             <HoverCard openDelay={100} closeDelay={300}>
-              <Tooltip>
-                <TooltipTrigger render={<div className="flex items-center justify-center" />}>
-                  <HoverCardTrigger asChild>
-                    <Button
-                      variant="secondary"
-                      size="icon"
-                      className="h-8 w-8 rounded-full shadow-md border border-border/50 bg-background hover:bg-accent transition-colors"
-                    >
-                      <ListTree className="w-4 h-4 text-muted-foreground" />
-                    </Button>
-                  </HoverCardTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>Document Outline</p>
-                </TooltipContent>
-              </Tooltip>
+              <HoverCardTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  aria-label="Document Outline"
+                  className="h-8 w-8 rounded-full shadow-md border border-border/50 bg-background hover:bg-accent transition-colors"
+                >
+                  <ListTree className="w-4 h-4 text-muted-foreground" />
+                </Button>
+              </HoverCardTrigger>
 
               <HoverCardContent
                 side={side === 'left' ? 'right' : 'left'}
@@ -65,7 +59,7 @@ export function DocumentOutline({ headings, scrollToHeading, side = 'right' }: D
               >
                 <div className="space-y-2">
                   <div className="flex items-center justify-between border-b pb-1.5">
-                    <h4 className="text-sm font-semibold tracking-tight">Navigation</h4>
+                    <div className="text-xs font-semibold tracking-tight">Navigation</div>
                     <span className="text-[10px] text-muted-foreground uppercase font-medium">Headings</span>
                   </div>
 

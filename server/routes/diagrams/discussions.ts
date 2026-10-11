@@ -392,12 +392,15 @@ async function listComments(req: Request, res: Response, resource: ScopedResourc
       SELECT COALESCE(json_agg(json_build_object(
         'id', recent_message."id",
         'authorId', recent_message."author_id",
+        'authorName', recent_message."authorName",
         'body', recent_message."body",
         'createdAt', recent_message."created_at"
       ) ORDER BY recent_message."created_at" ASC, recent_message."id" ASC), '[]'::json) AS "previewMessages"
       FROM (
-        SELECT m."id", m."author_id", m."body", m."created_at"
-        FROM "comment_messages" m WHERE m."thread_id" = t."id"
+        SELECT m."id", m."author_id", m."body", m."created_at",
+          COALESCE(NULLIF(m."author_name", ''), u."name", u."email", 'Team member') AS "authorName"
+        FROM "comment_messages" m LEFT JOIN "users" u ON u."id" = m."author_id"
+        WHERE m."thread_id" = t."id"
         ORDER BY m."created_at" DESC, m."id" DESC LIMIT 3
       ) recent_message
     ) recent ON true

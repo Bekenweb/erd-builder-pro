@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, MessageSquare, MessageSquarePlus } from 'lucide-react';
+import { Check, Maximize2, MessageSquare, MessageSquarePlus } from 'lucide-react';
 import type { Editor } from '@tiptap/react';
 import { cn } from '@/lib/utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -204,6 +204,13 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
   if (!container) return null;
   const activeItem = items.find((item) => item.id === activeId) ?? null;
   const anchor = (id: string) => ({ type: 'block', id });
+  // The full comments panel (header button, Comments tab) lists every thread of the file, resolved ones included.
+  const openInPanel = (id: string) => {
+    window.dispatchEvent(new CustomEvent('project-comment-open-request', {
+      detail: { featureType: file.featureType, fileId: file.fileId, type: 'block', id },
+    }));
+    collapse();
+  };
 
   return (
     <div className="pointer-events-none absolute inset-0 z-30">
@@ -249,6 +256,15 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
                 >
                   <Check className="size-3.5" />
                 </button>
+                <button
+                  type="button"
+                  title="Open in comments panel"
+                  aria-label="Open in comments panel"
+                  onClick={() => openInPanel(item.id)}
+                  className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <Maximize2 className="size-3.5" />
+                </button>
               </div>
             )}
             {active ? (
@@ -293,7 +309,8 @@ export function NoteCommentsLayer({ editor, page, container, file, wide, request
               <SheetTitle className="text-base">Comments</SheetTitle>
             </SheetHeader>
             {activeItem && (
-              <CommentThreadView file={file} anchor={anchor(activeItem.id)} autoFocus={!activeItem.marker} className="overflow-y-auto" />
+              <CommentThreadView file={file} anchor={anchor(activeItem.id)} autoFocus={!activeItem.marker} className="overflow-y-auto"
+                onExpand={activeItem.marker ? () => openInPanel(activeItem.id) : undefined} />
             )}
           </SheetContent>
         </Sheet>

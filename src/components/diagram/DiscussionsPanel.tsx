@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CommentAvatar, shortCommentTime } from "@/components/comments/CommentThreadView";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -458,6 +459,7 @@ export function DiscussionsPanel({
   fileContext,
   anchorContext,
   onContextSelected,
+  anchorPreview,
 }: {
   projectId: string;
   teamId: string;
@@ -465,6 +467,8 @@ export function DiscussionsPanel({
   fileContext: { featureType: CollaborationFeatureType; fileId: string; label: string };
   anchorContext?: DiscussionAnchor | null;
   onContextSelected?: (context: CollaborationContext) => void;
+  /** Text of the commented content (e.g. a Note block); null when unknown. */
+  anchorPreview?: (anchorId: string) => string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"discussions" | "comments">("discussions");
@@ -1106,8 +1110,8 @@ export function DiscussionsPanel({
                 </Tabs>
               </div>
             ) : isCommentRail ? (
-              <div className="shrink-0 border-b border-border/70 px-4 py-2 text-xs text-muted-foreground">
-                Showing the latest few messages. Open a card to load the full history.
+              <div className="shrink-0 border-b border-border/70 px-3 py-1.5 text-[11px] text-muted-foreground">
+                Latest messages. Open a card for the full history.
               </div>
             ) : (
               <div className="shrink-0 border-b border-border/70 px-4 py-2 text-xs text-muted-foreground">
@@ -1130,30 +1134,30 @@ export function DiscussionsPanel({
               )}
               {!loadError && isCommentRail && commentGroups.map((group) => {
                 const thread = group.representative;
-                const StatusIcon = thread.status === "resolved" ? CheckCircle2 : MessageCircle;
-                const statusLabel = thread.status === "resolved" ? "Resolved" : thread.unread ? "New activity" : "Open";
+                const latest = group.previewMessages[group.previewMessages.length - 1];
+                const quoted = thread.anchorId ? anchorPreview?.(thread.anchorId) : null;
+                const authorName = latest?.authorName || "Team member";
                 return (
                   <button
                     type="button"
                     key={group.key}
-                    className={cn("w-full border-b border-border/70 px-4 py-3 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", thread.unread && "bg-primary/5")}
+                    className={cn("w-full border-b border-border/70 px-3 py-2 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring", thread.unread && "bg-primary/5")}
                     onClick={() => void openCommentGroup(group)}
                   >
-                    <span className="flex items-center gap-3">
-                      <span role="img" aria-label={statusLabel} className={cn("relative flex size-9 shrink-0 items-center justify-center rounded-full", thread.status === "resolved" ? "bg-emerald-500/10 text-emerald-500" : thread.unread ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground")}>
-                        <StatusIcon aria-hidden="true" className="size-4" />
-                        {thread.unread && <span aria-hidden="true" className="absolute right-0.5 top-0.5 size-2 rounded-full bg-primary ring-2 ring-popover" />}
+                    <span className="flex items-center gap-2">
+                      <span className="relative shrink-0">
+                        <CommentAvatar name={authorName} />
+                        {thread.unread && <span role="img" aria-label="New activity" className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary ring-2 ring-popover" />}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className={cn("truncate text-sm", thread.unread ? "font-semibold text-foreground" : "font-medium")}>{thread.anchorLabel || "Comment"}</span>
-                          <span className="ml-auto shrink-0 text-xs text-muted-foreground">{relativeMessageTime(thread.lastMessageAt)}</span>
-                        </span>
-                        <span className="mt-1 block truncate text-xs text-muted-foreground">{featureLabel(thread.featureType)} · {group.threads.length} {group.threads.length === 1 ? "thread" : "threads"}</span>
-                      </span>
+                      <span className="min-w-0 truncate text-xs font-semibold">{authorName}</span>
+                      {thread.status === "resolved" && <CheckCircle2 role="img" aria-label="Resolved" className="size-3.5 shrink-0 text-emerald-500" />}
+                      <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{shortCommentTime(thread.lastMessageAt ?? "")}</span>
                     </span>
-                    <span className="mt-3 block space-y-1 pl-12">
-                      {group.previewMessages.map((message) => <span key={message.id} className="block truncate text-sm text-muted-foreground">{message.body}</span>)}
+                    <span className="mt-1 block space-y-0.5 pl-8">
+                      {quoted
+                        ? <span className="line-clamp-2 border-l-2 border-yellow-500/70 pl-2 text-xs leading-snug text-muted-foreground">{quoted.length > 50 ? `${quoted.slice(0, 50).trimEnd()}…` : quoted}</span>
+                        : <span className="block truncate text-[11px] text-muted-foreground">{thread.anchorLabel || "Comment"}</span>}
+                      {latest && <span className="block truncate text-xs">{latest.body}</span>}
                     </span>
                   </button>
                 );
@@ -1214,16 +1218,28 @@ export function DiscussionsPanel({
 
         {screen === "thread" && activeThread && (
           <div className="flex min-h-0 flex-1 flex-col">
-            {activeTab === "comments" && <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-              <div className="min-w-0">
-                <span className="block truncate text-sm text-muted-foreground">{activeThread.anchorType === "general" ? "General" : activeThread.anchorType}</span>
-                {activeThread.featureType && <span className="block truncate text-xs text-muted-foreground">{featureLabel(activeThread.featureType)} · {isCommentRail || activeThread.fileId === fileContext.fileId ? "Current file" : "Project file"}</span>}
+            {activeTab === "comments" && (
+              <div className="flex items-start gap-2 border-b border-border px-3 py-1.5">
+                <div className="min-w-0 flex-1">
+                  {(() => {
+                    const quoted = activeThread.anchorId && (isCommentRail || activeThread.fileId === fileContext.fileId) ? anchorPreview?.(activeThread.anchorId) : null;
+                    return quoted
+                      ? <p className="line-clamp-2 border-l-2 border-yellow-500/70 pl-2 text-xs leading-snug text-muted-foreground">{quoted}</p>
+                      : <span className="block truncate text-xs text-muted-foreground">{activeThread.anchorType === "general" ? "General" : activeThread.anchorType}{activeThread.featureType && ` · ${featureLabel(activeThread.featureType)}`}</span>;
+                  })()}
+                </div>
+                <TooltipProvider delay={250}>
+                  <Tooltip>
+                    <TooltipTrigger render={
+                      <Button type="button" variant="ghost" size="icon-xs" className="shrink-0" aria-label={activeThread.status === "open" ? "Resolve" : "Reopen"} onClick={() => void changeStatus()} disabled={sending}>
+                        {activeThread.status === "open" ? <Check aria-hidden="true" className="size-4" /> : <RotateCcw aria-hidden="true" className="size-4" />}
+                      </Button>
+                    } />
+                    <TooltipContent side="left">{activeThread.status === "open" ? "Resolve" : "Reopen"}</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
-              <Button variant="outline" className="min-h-11 shrink-0" onClick={() => void changeStatus()} disabled={sending}>
-                {activeThread.status === "open" ? <Check aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
-                {activeThread.status === "open" ? "Resolve" : "Reopen"}
-              </Button>
-            </div>}
+            )}
             {threadError && (
               <div className="m-4 rounded-lg border border-destructive/40 p-4 text-sm" role="alert">
                 <p>{threadError}</p>
