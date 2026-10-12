@@ -304,7 +304,8 @@ export function DashboardRoute() {
 
   const createDocument = (cfg: typeof typeConfig[number]) => {
     if (!canUseCloudFeature(cfg.key)) return;
-    (ctx as Record<string, any>).handleOpenCreateDocument?.(cfg.key === 'diagrams' ? 'erd' : cfg.key);
+    // The create dialog's view keys are 'erd' and 'flowchart', not the plural dashboard keys.
+    (ctx as Record<string, any>).handleOpenCreateDocument?.(cfg.key === 'diagrams' ? 'erd' : cfg.key === 'flowcharts' ? 'flowchart' : cfg.key);
   };
 
   const lastDocument = recentDocs[0];

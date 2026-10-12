@@ -198,7 +198,8 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
       {/* Background Shape */}
       {shapeBackground}
 
-      {data._commentsEnabled && <div className="absolute -right-2 -top-2 z-30">
+      {/* Above the resize handles (z-50) that share this corner, or they take the click and open Symbol Properties. */}
+      {data._commentsEnabled && <div className="absolute -right-2 -top-2 z-60">
         <CommentMarker anchor={{ type: 'shape', id }} />
       </div>}
 
@@ -235,9 +236,12 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
     <ContextMenu>
       <ContextMenuTrigger className="contents">{content}</ContextMenuTrigger>
       <ContextMenuContent className="min-w-36" positionerClassName="z-[210]">
-        <ContextMenuItem onClick={() => window.dispatchEvent(new CustomEvent(OPEN_COMMENT_EVENT, {
-          detail: { type: "shape", id },
-        }))}>
+        <ContextMenuItem onClick={(e) => {
+          // The menu is portaled, but React still bubbles the click to the node, which would open Symbol Properties.
+          e.preventDefault();
+          e.stopPropagation();
+          window.dispatchEvent(new CustomEvent(OPEN_COMMENT_EVENT, { detail: { type: "shape", id } }));
+        }}>
           <MessageSquare aria-hidden="true" />
           Comment
         </ContextMenuItem>
