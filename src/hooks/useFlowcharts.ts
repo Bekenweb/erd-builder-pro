@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Flowchart, DraftType } from '../types';
 import { localPersistence } from '../lib/localPersistence';
 import { apiFetch } from '../lib/api';
+import { initialNodes, initialEdges } from '../components/flowchart/flowchartConstants';
 
 export function useFlowcharts(isGuest: boolean = false) {
   const [flowcharts, setFlowcharts] = useState<Flowchart[]>([]);
@@ -120,7 +121,8 @@ export function useFlowcharts(isGuest: boolean = false) {
     }
   }, [isGuest]);
 
-  const createFlowchart = async (title: string, projectId?: number | string | null, data?: string) => {
+  // A new file starts with the template the editor shows, so a Team member can comment on its nodes before the creator edits anything.
+  const createFlowchart = async (title: string, projectId?: number | string | null, data: string = JSON.stringify({ nodes: initialNodes, edges: initialEdges })) => {
     const effectiveProjectId = (projectId === 'none' || projectId === 'uncategorized') ? null : projectId;
 
     if (isGuest) {

@@ -26,7 +26,7 @@ import { Plus, Upload, Undo2, Redo2, LayoutGrid, RefreshCw, Database, Download, 
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import EntityNode from '../diagram/EntityNode';
-import { CommentMarker, ERDCommentsProvider, OPEN_COMMENT_EVENT, type ERDCommentsConfig } from '../diagram/ERDComments';
+import { CommentMarker, ERDCommentsProvider, OPEN_COMMENT_EVENT, PrepareCommentAnchor, type CommentAnchor, type ERDCommentsConfig } from '../diagram/ERDComments';
 import { SchemaDiffOverlay } from '../diagram/SchemaDiffOverlay';
 import { Entity } from '@/types';
 import { useAIAction } from '@/contexts/AIActionContext';
@@ -35,6 +35,7 @@ import { toast } from 'sonner';
 import { computeSchemaDiff, DiffResult } from '@/lib/schema-diff';
 import { mergeSchemaChanges } from '@/lib/schema-merge';
 import { useWorkspace } from '@/providers/WorkspaceContext';
+import { storedHasAnchor } from '@/lib/fileComments';
 import { apiFetch, isInstalledApp } from '@/lib/api';
 import { EyeOff, Monitor } from 'lucide-react';
 import { buildErdIndexes, erdColumnKey, erdSourceColumnKey } from '@/lib/erd-indexes';
@@ -160,9 +161,19 @@ const ERDViewComponent = ({
 
   const { registerContentHandler, setSelectionText, setActionContextData, setRightPanelMode } = useAIAction();
   const { getViewport, getNodes, getEdges, setViewport, setCenter } = useReactFlow();
-  const { resolvedTheme } = useWorkspace();
+  const { resolvedTheme, activeDiagram, syncDrafts, hasPendingSyncs, isLocalSaving } = useWorkspace();
   const bgColor = resolvedTheme === 'dark' ? '#222' : '#ccc';
   const isProductionDb = isDbClient;
+
+  // The server rejects a comment anchor it has not saved yet (a table or relationship added moments ago),
+  // so before a new thread starts, save the canvas and push it unless the server already has that item.
+  const prepareAnchor = async (anchor: CommentAnchor) => {
+    const onCanvas = (anchor.type === 'table' ? getNodes() : getEdges()) as Array<{ id: string }>;
+    if (isReadOnly || isProductionDb || !saveDiagram || !onCanvas.some((item) => item.id === anchor.id)) return;
+    if (storedHasAnchor(activeDiagram?.data, anchor) && !isLocalSaving && !hasPendingSyncs) return;
+    await saveDiagram(getNodes() as Node<Entity>[], getEdges(), getViewport());
+    await syncDrafts();
+  };
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
@@ -681,6 +692,7 @@ const ERDViewComponent = ({
 
   const content = (
     <div className="flex-1 relative flex flex-col overflow-hidden border rounded-xl bg-muted/20" style={{ contain: 'paint layout' }}>
+      <PrepareCommentAnchor prepare={prepareAnchor} />
 
       {isReadOnly && isProductionDb && (
         <div className="absolute bottom-4 inset-x-0 z-20 flex justify-center pointer-events-none">

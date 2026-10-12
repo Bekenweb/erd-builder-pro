@@ -114,3 +114,13 @@ export function visibleMessages<T>(messages: readonly T[], count: number): T[] {
 export function hiddenCount(loaded: number, count: number): number {
   return Math.max(loaded - count, 0);
 }
+
+/** Whether saved file data (JSON text or parsed) already holds the node or edge a comment anchors to; the server rejects an anchor it does not hold. */
+export function storedHasAnchor(data: unknown, anchor: CommentAnchorRef): boolean {
+  let parsed = data;
+  if (typeof data === 'string') {
+    try { parsed = JSON.parse(data); } catch { return false; }
+  }
+  const items = (parsed as { nodes?: unknown; edges?: unknown } | null)?.[anchor.type === 'relationship' ? 'edges' : 'nodes'];
+  return Array.isArray(items) && items.some((item) => item?.id === anchor.id);
+}

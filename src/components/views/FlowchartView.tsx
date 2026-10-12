@@ -42,6 +42,8 @@ import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { autoLayoutFlowchart } from '@/lib/autoLayoutFlowchart';
 import { useWorkspace } from '@/providers/WorkspaceContext';
 import type { FlowchartExportHandler } from '@/providers/WorkspaceContext';
+import { PrepareCommentAnchor, type CommentAnchor } from '@/components/diagram/ERDComments';
+import { storedHasAnchor } from '@/lib/fileComments';
 
 const nodeTypes = {
   custom: FlowchartNode,
@@ -412,8 +414,17 @@ export const FlowchartView = React.memo(({
   };
 
   // ── SVG Export ──
-  const { setFlowchartExportHandler, resolvedTheme } = useWorkspace();
+  const { setFlowchartExportHandler, resolvedTheme, syncDrafts, hasPendingSyncs, isLocalSaving } = useWorkspace();
   const bgColor = resolvedTheme === 'dark' ? '#222' : '#ccc';
+
+  // The server rejects a comment anchor it has not saved yet (symbols added moments ago, or a template nobody has saved),
+  // so before a new thread starts, save the canvas and push it unless the server already has that symbol.
+  const prepareAnchor = async (anchor: CommentAnchor) => {
+    if (isReadOnly || !saveFlowchart || !nodesRef.current.some((node) => node.id === anchor.id)) return;
+    if (storedHasAnchor(activeFlowchart.data, anchor) && !isLocalSaving && !hasPendingSyncs) return;
+    await saveFlowchart({ ...activeFlowchart, data: JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current }) });
+    await syncDrafts();
+  };
 
   const getExportFilename = (suffix?: string) => {
     const base = activeFlowchart?.title?.replace(/[^a-zA-Z0-9_-]/g, '_') || 'flowchart';
@@ -777,7 +788,8 @@ export const FlowchartView = React.memo(({
 
   return (
     <Card className="w-full h-full border rounded-xl bg-muted/20 flex flex-col overflow-hidden relative py-0">
-      
+      <PrepareCommentAnchor prepare={prepareAnchor} />
+
       {/* Top Bar */}
       {!isReadOnly && (
         <div className="absolute top-6 inset-x-0 z-10 flex justify-center pointer-events-none">

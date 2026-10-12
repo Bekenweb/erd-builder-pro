@@ -32,6 +32,8 @@ type CommentsContext = {
   active: CommentAnchor | null;
   open: (anchor: CommentAnchor) => void;
   setAnchorElement: (element: HTMLElement | null) => void;
+  /** A file registers what to run before a new thread's anchor is looked up, e.g. saving what only exists in the browser. */
+  setPrepareAnchor: (prepare: ((anchor: CommentAnchor) => Promise<void>) | null) => void;
 };
 
 const Context = createContext<CommentsContext | null>(null);
@@ -105,6 +107,13 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
   const editTextarea = useRef<HTMLTextAreaElement>(null);
   const requestId = useRef(0);
   const markerRequestId = useRef(0);
+  const markersRef = useRef(markers);
+  markersRef.current = markers;
+  // The anchor of the latest open request; closing the window or opening another anchor drops a pending one.
+  const opening = useRef<CommentAnchor | null>(null);
+  useEffect(() => { if (!active) opening.current = null; }, [active]);
+  const prepareAnchor = useRef<((anchor: CommentAnchor) => Promise<void>) | null>(null);
+  const setPrepareAnchor = useCallback((prepare: ((anchor: CommentAnchor) => Promise<void>) | null) => { prepareAnchor.current = prepare; }, []);
 
   const loadMarkers = useCallback(async () => {
     const current = ++markerRequestId.current;
@@ -201,6 +210,7 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
   }, [active, base, loadingOlder, messageHistory, scope]);
 
   const open = useCallback((anchor: CommentAnchor) => {
+    opening.current = anchor;
     setActive(anchor);
     setAnchorElement(null);
     setDraft('');
@@ -209,7 +219,16 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
     setEditingMessageId(null);
     setEditDraft('');
     setDeleteDialogOpen(false);
-    void loadAnchor(anchor);
+    // The server rejects an anchor it has not saved yet, so a new thread first lets the file save what only exists in the browser.
+    const prepare = markersRef.current.has(keyOf(anchor)) ? null : prepareAnchor.current;
+    if (!prepare) { void loadAnchor(anchor); return; }
+    requestId.current++; // drop the answer of any lookup still running for the previous thread
+    setLoading(true);
+    setError('');
+    void Promise.resolve()
+      .then(() => prepare(anchor))
+      .catch(() => { /* the lookup below reports any failure */ })
+      .then(() => { if (opening.current === anchor) void loadAnchor(anchor); });
   }, [loadAnchor]);
 
   const hasUnsent = draft.trim() !== '' || (editingMessageId !== null && editDraft !== (messages.find((message) => message.id === editingMessageId)?.body ?? ''));
@@ -389,7 +408,7 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
     } finally { setSending(false); }
   };
 
-  const value = useMemo(() => ({ markers, active, open: requestOpen, setAnchorElement }), [markers, active, requestOpen]);
+  const value = useMemo(() => ({ markers, active, open: requestOpen, setAnchorElement, setPrepareAnchor }), [markers, active, requestOpen, setPrepareAnchor]);
   return (
     <Context.Provider value={value}>
       {children}
@@ -496,6 +515,18 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
 }
 
 export function useERDComments() { return useContext(Context); }
+
+/** A file renders this inside the provider to run `prepare` before a new thread's anchor is looked up. */
+export function PrepareCommentAnchor({ prepare }: { prepare: (anchor: CommentAnchor) => Promise<void> }) {
+  const setPrepareAnchor = useERDComments()?.setPrepareAnchor;
+  const latest = useRef(prepare);
+  latest.current = prepare;
+  useEffect(() => {
+    setPrepareAnchor?.((anchor) => latest.current(anchor));
+    return () => setPrepareAnchor?.(null);
+  }, [setPrepareAnchor]);
+  return null;
+}
 
 export function CommentMarker({ anchor }: { anchor: CommentAnchor }) {
   const comments = useERDComments();
