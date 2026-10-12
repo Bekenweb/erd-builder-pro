@@ -177,12 +177,29 @@
     "vitest": "^4.1.11"
   },
   "overrides": {
+    "@excalidraw/excalidraw": {
+      "nanoid": "3.3.18"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "nanoid": "5.1.16"
+    },
+    "@tailwindcss/typography": {
+      "postcss-selector-parser": "^7.1.6"
+    },
     "brace-expansion": "^5.0.12",
     "fast-uri": "^3.1.8",
     "hono": "^4.13.12",
     "immutable": "^4.3.9",
     "ip-address": "^10.7.2",
     "js-yaml": "^4.3.1",
+    "lodash-es": "^4.18.1",
+    "mammoth": {
+      "argparse": "^2.0.1"
+    },
+    "mysql2": "$mysql2",
+    "shadcn": {
+      "postcss-selector-parser": "^7.1.6"
+    },
     "ws": "^8.21.0"
   }
 }
