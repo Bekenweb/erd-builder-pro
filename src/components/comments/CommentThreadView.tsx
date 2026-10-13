@@ -114,7 +114,7 @@ export function CommentThreadView({ file, anchor, autoFocus = false, showActions
       {thread.error && <p role="alert" className="text-xs text-destructive">{thread.error}</p>}
 
       {thread.status === 'open' && (
-        <form className="flex items-end gap-1.5 rounded-md border bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-ring"
+        <form className="mx-0.5 mb-0.5 flex items-end gap-1.5 rounded-lg border border-input bg-background px-2.5 py-1.5 transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20"
           onSubmit={(event) => { event.preventDefault(); void submit(); }}>
           <textarea
             ref={input}
@@ -128,11 +128,11 @@ export function CommentThreadView({ file, anchor, autoFocus = false, showActions
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit(); }
               if (event.key === 'Escape') onClose?.();
             }}
-            className="max-h-[120px] min-h-5 flex-1 resize-none bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            className="max-h-[120px] min-h-6 flex-1 resize-none bg-transparent py-0.5 text-xs outline-none placeholder:text-muted-foreground"
           />
           <button type="submit" disabled={!draft.trim() || thread.sending} aria-label="Send comment"
-            className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white disabled:opacity-40">
-            <ArrowUp className="size-3" />
+            className="flex size-6 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white disabled:opacity-40">
+            <ArrowUp className="size-3.5" />
           </button>
         </form>
       )}

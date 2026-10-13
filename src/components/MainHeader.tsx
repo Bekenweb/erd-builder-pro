@@ -130,7 +130,7 @@ export const MainHeader = React.memo(({
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 w-full overflow-hidden border-b bg-background/50 backdrop-blur-sm">
-      <div className="flex items-center gap-2 px-4 min-w-0 flex-none">
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-4">
         {!isPublicView && (
           <>
             <SidebarTrigger className="-ml-1 shrink-0" />
@@ -138,7 +138,7 @@ export const MainHeader = React.memo(({
           </>
         )}
         <Breadcrumb className="min-w-0 flex items-center">
-          <BreadcrumbList className="flex-nowrap items-center">
+          <BreadcrumbList className="min-w-0 flex-nowrap items-center">
             {!isPublicView && (() => {
               const path = location.pathname;
               if (path === '/') {
@@ -261,7 +261,7 @@ export const MainHeader = React.memo(({
         </Breadcrumb>
       </div>
 
-      <div className="flex-1 flex items-center justify-center px-2">
+      <div className="flex shrink-0 items-center justify-center px-2">
         {!isOnline && !isPublicView ? (
           <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-destructive/10 border border-destructive/20 text-destructive animate-in fade-in slide-in-from-top-1 duration-500">
             <div className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
@@ -270,7 +270,7 @@ export const MainHeader = React.memo(({
         ) : null}
       </div>
 
-      <div className="px-2 sm:px-4 flex items-center gap-1 sm:gap-4">
+      <div className="flex shrink-0 items-center gap-1 px-2 sm:gap-4 sm:px-4">
         {!!location.pathname.match(/^\/(notes|diagrams|drawings|flowcharts)\/[^/]+$/) && (
           <div className="flex items-center gap-1 sm:gap-4">
             {!isPublicView && (

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 // Components
 import { AppSidebar } from '@/components/app-sidebar';
 import { MainHeader } from '@/components/MainHeader';
+import { useAutoCollapseSidebar } from '@/hooks/useAutoCollapseSidebar';
 import { FeedbackDialog } from '@/components/FeedbackDialog';
 import { MoveToTrashAlert } from '@/components/modals/MoveToTrashAlert';
 import { DeleteEntityAlert } from '@/components/modals/DeleteEntityAlert';
@@ -67,7 +68,7 @@ import { mergeDBMLCanvas } from '@/lib/dbml-canvas-merge';
 import { isRightPanelAvailable } from '@/lib/right-panel-availability';
 import { AIChatToggle } from '@/components/ai/AIChatToggle';
 import { getDbClientCache, setDbClientCache } from '@/hooks/useDataViewerHelpers';
-import { isFileCreator, isFileViewer } from '@/lib/fileOwnership';
+import { isFileCreator, readOnlyNotice } from '@/lib/fileOwnership';
 import { getAppPageTitle } from '@/lib/app-page-title';
 
 // ── Inner component that uses AIAction context ──
@@ -194,7 +195,7 @@ function AppLayoutInner() {
     handleDuplicate,
     syncError, isSyncing, isLocalSaving, isRefreshing, hasPendingSyncs, syncDrafts,
     activeFileUid, currentActiveId, initialShareSettings,
-    activeDocument, isGuest,
+    activeDocument, isGuest, isReadOnlyFile, getFileAccessRole,
     featureLabel, activeProjectName, activeFileName, hasActiveItem,
     activeNote, activeDrawing, activeFlowchart, activeDiagram,
     notes, diagrams, flowcharts, drawings,
@@ -355,8 +356,10 @@ function AppLayoutInner() {
   const activeDiagramIsProductionDb = isActiveDiagramContext
     && (activeDiagram?.source_type ?? activeDiagram?.sourceType) === 'production_db';
   const canDeleteActiveDocument = isFileCreator(activeDocument, user?.id, isGuest);
-  // Rename, share, import and history restore stay with the creator, like delete (DATA-004).
-  const canManageActiveDocument = !isFileViewer(activeDocument, user?.id, isGuest);
+  // The creator, a Team Manager and a Project Editor change the content, rename and import; sharing and history restore stay with the creator, like delete (DATA-004, COL-004).
+  const canEditActiveDocument = !isReadOnlyFile(activeDocument);
+  const canManageActiveDocument = canDeleteActiveDocument;
+  const activeFileRole = getFileAccessRole(activeDocument);
   const documentToDelete = tableDeleteDoc ?? activeDocument;
   const deletingDbClient = (documentToDelete?.source_type ?? documentToDelete?.sourceType) === 'production_db';
   const propertiesEntity = useMemo(() => {
@@ -501,12 +504,12 @@ function AppLayoutInner() {
     && (activeDiagram?.source_type ?? activeDiagram?.sourceType) === 'production_db');
   const showAIChat = useMemo(() => {
     const cloudAiIncluded = !user?.isSso || teamState.activeTeam?.capabilities?.ai_assistant === true;
-    if (!cloudAiIncluded || entityContext === null || isPublicView || !canManageActiveDocument || entityContext.entityType === 'drawing') return false;
+    if (!cloudAiIncluded || entityContext === null || isPublicView || !canEditActiveDocument || entityContext.entityType === 'drawing') return false;
     if (isActiveDbClient) return true;
     const resolvedTab = searchParams.get('tab') || 'erd';
     return resolvedTab === 'erd';
-  }, [entityContext, isPublicView, canManageActiveDocument, isActiveDbClient, searchParams, teamState.activeTeam, user?.isSso]);
-  const showDBMLPanel = isActiveDiagramContext && canManageActiveDocument && (activeDiagram?.source_type ?? activeDiagram?.sourceType) !== 'production_db';
+  }, [entityContext, isPublicView, canEditActiveDocument, isActiveDbClient, searchParams, teamState.activeTeam, user?.isSso]);
+  const showDBMLPanel = isActiveDiagramContext && canEditActiveDocument && (activeDiagram?.source_type ?? activeDiagram?.sourceType) !== 'production_db';
 
   // Derive project_id from the active entity. Discussions and Comments use the
   // same Project boundary for Cloud and licensed Self-host Teams.
@@ -586,6 +589,7 @@ function AppLayoutInner() {
       userName={user?.name || user?.email}
       fileContext={discussionFileContext}
       anchorContext={discussionAnchorContext}
+      readOnly={activeFileRole === 'viewer'}
       onContextSelected={handleDiscussionContextSelected}
       anchorPreview={discussionFileContext.featureType === 'note' ? noteAnchorPreview : undefined}
     />
@@ -714,10 +718,10 @@ function AppLayoutInner() {
     previousEntityContextKeyRef.current = contextKey;
 
     if (contextChanged) setPropertiesEntityId(null);
-    if (rightPanelMode === 'properties' && (!isActiveDiagramContext || contextChanged || activeDiagramIsProductionDb || !canManageActiveDocument)) {
+    if (rightPanelMode === 'properties' && (!isActiveDiagramContext || contextChanged || activeDiagramIsProductionDb || !canEditActiveDocument)) {
       setRightPanelMode('closed');
     }
-  }, [entityContext, isActiveDiagramContext, rightPanelMode, activeDiagramIsProductionDb, canManageActiveDocument, setRightPanelMode]);
+  }, [entityContext, isActiveDiagramContext, rightPanelMode, activeDiagramIsProductionDb, canEditActiveDocument, setRightPanelMode]);
 
   useEffect(() => {
     if (rightPanelMode === 'properties' && selectedNodeId) setPropertiesEntityId(selectedNodeId);
@@ -799,7 +803,7 @@ function AppLayoutInner() {
           isOnline={isOnline}
           updatedAt={activeDocument?.updated_at}
           onDelete={canDeleteActiveDocument ? handleHeaderDelete : undefined}
-          onRename={canManageActiveDocument ? handleHeaderRename : undefined}
+          onRename={canEditActiveDocument ? handleHeaderRename : undefined}
           canManage={canManageActiveDocument}
           onRefresh={refreshActiveDocument}
           onExportAll={activeDiagramIsProductionDb ? undefined : () => setIsExportAllOpen(true)}
@@ -807,7 +811,7 @@ function AppLayoutInner() {
           onExportImage={handleHeaderExportImage}
           onExportMarkdown={handleExportMarkdown}
           onCopyMarkdown={handleCopyMarkdown}
-          onImportMarkdown={canManageActiveDocument ? handleImportMarkdown : undefined}
+          onImportMarkdown={canEditActiveDocument ? handleImportMarkdown : undefined}
           onDuplicate={handleDuplicate}
           isGuest={isGuest}
           breadcrumbLabel={breadcrumbLabel}
@@ -816,11 +820,11 @@ function AppLayoutInner() {
           discussionPanel={discussionPanel}
         />
 
-        {!isPublicView && !canManageActiveDocument && (
+        {!isPublicView && !canEditActiveDocument && (
           <div className="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm" role="status">
             <Eye className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
             <span className="min-w-0 flex-1 text-muted-foreground">
-              View only · owned by {activeDocument?.user?.name || activeDocument?.user?.email || 'another member'}. Only the creator can edit this file.
+              {readOnlyNotice(activeFileRole, activeDocument?.user?.name || activeDocument?.user?.email || 'another member')}
             </span>
             <Button type="button" variant="outline" size="sm" disabled={isRefreshing} onClick={refreshActiveDocument}>
               <RefreshCw className={`size-3.5 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -1041,7 +1045,7 @@ function AppLayoutInner() {
               {/* ── Tab bar ── */}
               <div className="shrink-0 flex items-center border-b border-border bg-muted/20">
                 <div className="flex-1 flex">
-                  {isActiveDiagramContext && !isPublicView && canManageActiveDocument && !activeDiagramIsProductionDb && (
+                  {isActiveDiagramContext && !isPublicView && canEditActiveDocument && !activeDiagramIsProductionDb && (
                     <button
                       onClick={() => setRightPanelMode('properties')}
                       className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors ${
@@ -1173,8 +1177,11 @@ function AppLayoutInner() {
 // ── Root layout: providers wrap inner content ──
 
 export function AppLayout() {
+  const sidebar = useAutoCollapseSidebar();
   return (
     <SidebarProvider
+      open={sidebar.open}
+      onOpenChange={sidebar.onOpenChange}
       className="h-svh overflow-hidden"
       style={{ "--sidebar-width": "320px" } as React.CSSProperties}
     >

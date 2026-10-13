@@ -24,7 +24,7 @@ export function DrawingEditorRoute() {
   const drawingProject = ctx.projects.find((project: any) => String(project.id) === String(drawingProjectId));
   const drawingProjectTeamId = drawingProject?.team_id ?? drawingProject?.teamId;
   // COL-005: per-element comments on Drawings are paused until they get the same comment window as ERD and Flowchart.
-  const commentsEnabled = DRAWING_COMMENTS_ENABLED && Boolean(!isPublicView && !ctx.isGuest && drawingProjectTeamId && teamState.activeTeamId
+  const commentsEnabled = DRAWING_COMMENTS_ENABLED && Boolean(!isPublicView && !ctx.isGuest && ctx.getFileAccessRole(activeDrawing) !== 'viewer' && drawingProjectTeamId && teamState.activeTeamId
     && String(drawingProjectTeamId) === String(teamState.activeTeamId));
   const commentMarkers = useMemo<FileCommentMarkerConfig | null>(() => (
     commentsEnabled && drawingProjectId != null && drawingProjectTeamId && ctx.user?.id && drawingFileId != null

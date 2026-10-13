@@ -135,7 +135,7 @@ export function DiagramEditorRoute() {
   const projectId = activeDiagram?.project_id ?? activeDiagram?.projectId;
   const project = ctx.projects.find((item: any) => String(item.id) === String(projectId));
   const projectTeamId = project?.team_id ?? project?.teamId;
-  const comments: ERDCommentsConfig | undefined = !isPublicView && !isProductionDb && !ctx.isGuest && projectId && projectTeamId && String(projectTeamId) === String(activeTeamId) && ctx.user?.id && show?.id
+  const comments: ERDCommentsConfig | undefined = !isPublicView && !isProductionDb && !ctx.isGuest && ctx.getFileAccessRole(show) !== 'viewer' && projectId && projectTeamId && String(projectTeamId) === String(activeTeamId) && ctx.user?.id && show?.id
     ? { projectId: String(projectId), teamId: String(activeTeamId), fileId: String(show.uid ?? show.id), userId: String(ctx.user.id) }
     : undefined;
 

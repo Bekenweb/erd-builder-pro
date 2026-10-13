@@ -10,6 +10,7 @@ import * as drawingsService from "./service.js";
 import { generateSignedUrl, getStorageClientForUser } from "../../lib/storage.js";
 import { privateStorageKeysFromDrawingData, replacePrivateStorageUrlsInDrawingData } from "../../lib/storage-access.js";
 import { resolveStorage } from "../common/controller.js";
+import { fileAccessRole } from "../../lib/project-access.js";
 
 async function signDrawingAssets(drawing: any): Promise<any> {
   if (!drawing.data || !drawing.userId) return drawing;
@@ -69,7 +70,7 @@ export async function get(req: ExpressRequest, res: ExpressResponse): Promise<vo
     const drawing = await drawingsService.getDrawing(req.params.uid, userId);
     if (!drawing) { res.status(404).json({ error: "Drawing not found" }); return; }
     res.setHeader("Cache-Control", "private, no-store");
-    res.json(await signDrawingAssets(drawing));
+    res.json({ ...(await signDrawingAssets(drawing)), accessRole: await fileAccessRole(drawing, userId) });
   } catch (err: any) {
     handleError(res, err, "Failed to fetch drawing");
   }

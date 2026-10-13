@@ -164,11 +164,30 @@ model Project {
   drawings       Drawing[]
   flowcharts     Flowchart[]
   aiChatSessions AiChatSession[]
+  accessGrants   ProjectAccessGrant[]
 
   @@index([userId, isDeleted], map: "idx_projects_user_deleted")
   @@index([teamId, isDeleted], map: "idx_projects_team_deleted")
   @@index([updatedAt], map: "idx_projects_updated_at")
   @@map("projects")
+}
+
+// ── Project access (COL-004) ──
+// Explicit role for one Team member on one Project: editor, commenter or viewer.
+// No row means the default (commenter); the creator and Team Managers never need a row.
+model ProjectAccessGrant {
+  id        String   @id @default(uuid())
+  projectId Int      @map("project_id")
+  userId    String   @map("user_id")
+  role      String
+  grantedBy String?  @map("granted_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([projectId, userId], map: "project_access_grants_project_user_key")
+  @@index([userId], map: "idx_project_access_grants_user")
+  @@map("project_access_grants")
 }
 
 // ── Diagram (ERD) ──

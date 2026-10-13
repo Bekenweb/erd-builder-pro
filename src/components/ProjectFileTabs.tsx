@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Check, Database, DatabaseZap, FileText, GitBranch, PenTool, Plus } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, Database, DatabaseZap, FileText, GitBranch, PenTool, Plus } from 'lucide-react'
 import { useWorkspace } from '@/providers/WorkspaceProvider'
 import { Input } from '@/components/ui/input'
 import { apiFetch } from '@/lib/api'
@@ -234,13 +234,80 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
     }
   }
 
+  // The strip scrolls sideways when a Project has more files than fit; the arrows only show when there is more to reach.
+  const stripRef = useRef<HTMLDivElement>(null)
+  const [reach, setReach] = useState({ before: false, after: false })
+  const measureReach = useCallback(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    const before = strip.scrollLeft > 1
+    const after = strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1
+    setReach(prev => (prev.before === before && prev.after === after ? prev : { before, after }))
+  }, [])
+
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    // Bring the open file into view without scrolling any ancestor, which scrollIntoView would also do.
+    const active = strip.querySelector<HTMLElement>('[aria-current="page"]')
+    if (active) {
+      const tab = active.getBoundingClientRect()
+      const box = strip.getBoundingClientRect()
+      if (tab.left < box.left) strip.scrollLeft -= box.left - tab.left + 8
+      else if (tab.right > box.right) strip.scrollLeft += tab.right - box.right + 8
+    }
+    measureReach()
+    // Older WebViews have no ResizeObserver; the window size is then the only change that needs a new measurement.
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measureReach)
+      return () => window.removeEventListener('resize', measureReach)
+    }
+    const observer = new ResizeObserver(measureReach)
+    observer.observe(strip)
+    return () => observer.disconnect()
+  }, [activeUid, projectFiles.length, measureReach])
+
+  const scrollStrip = (direction: -1 | 1) => {
+    const strip = stripRef.current
+    if (strip) strip.scrollBy({ left: direction * Math.max(strip.clientWidth * 0.6, 160), behavior: 'smooth' })
+  }
+
   if (!projectId) return null
 
   // The page already pads the top by 16px; mb-3 plus the 4px of py-1 gives the same 16px below, and -mt-1 offsets the py-1 above.
   return (
-    <div className="-mt-1 mb-3 flex items-center shrink-0">
-      <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
-        <div className="flex items-center justify-start gap-1 py-1">
+    <nav aria-label="Project files" className="-mt-1 mb-3 flex items-center shrink-0">
+      <div className="relative min-w-0 flex-1">
+        {reach.before && (
+          <button
+            type="button"
+            onClick={() => scrollStrip(-1)}
+            className="absolute inset-y-0 left-0 z-10 flex items-center bg-gradient-to-r from-background from-60% to-transparent pl-0.5 pr-3 text-muted-foreground hover:text-foreground"
+            aria-label="Scroll files left"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+        )}
+        {reach.after && (
+          <button
+            type="button"
+            onClick={() => scrollStrip(1)}
+            className="absolute inset-y-0 right-0 z-10 flex items-center bg-gradient-to-l from-background from-60% to-transparent pl-3 pr-0.5 text-muted-foreground hover:text-foreground"
+            aria-label="Scroll files right"
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        )}
+        <div
+          ref={stripRef}
+          onScroll={measureReach}
+          onWheel={(event) => {
+            // A mouse wheel only moves vertically; let it move the strip sideways.
+            if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY
+          }}
+          className="overflow-x-auto scrollbar-hide"
+        >
+          <div className="flex w-max items-center justify-start gap-1 py-1">
           {projectFiles.map(({ file, type }) => {
             const feature = FEATURES.find(item => item.id === type)!
             const Icon = feature.icon
@@ -249,6 +316,8 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
             return (
               <button
                 key={`${type}-${uid}`}
+                type="button"
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => navigateTo(type, file)}
                 className={cn(
                   "flex h-8 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors",
@@ -263,13 +332,14 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
               </button>
             )
           })}
+          </div>
         </div>
       </div>
 
       <div ref={popoverRef} className="relative shrink-0 pl-2">
         <button
           onClick={() => setCreateOpen(open => !open)}
-          className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+          className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
           aria-label="Create file"
           aria-expanded={createOpen}
         >
@@ -325,6 +395,6 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </nav>
   )
 }

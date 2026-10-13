@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { FolderClosed, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react"
+import { FolderClosed, MoreHorizontal, Pencil, Plus, Trash2, Users } from "lucide-react"
 
 import { MoveToTrashAlert } from "@/components/modals/MoveToTrashAlert"
 import { SponsorCarousel } from "@/components/SponsorCarousel"
@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/sidebar"
 import { isFileCreator } from "@/lib/fileOwnership"
 import { SpotlightSearch } from "@/components/sidebar/SpotlightSearch"
+import { ProjectAccessDialog } from "@/components/team/ProjectAccessDialog"
 import type { Project } from "@/types"
 
 interface WorkspaceSidebarPanelProps {
@@ -93,6 +94,7 @@ export function WorkspaceSidebarPanel({
   const [editingProject, setEditingProject] = useState<{ id: number | string; name: string } | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [deletingProject, setDeletingProject] = useState<{ id: number | string; name: string } | null>(null)
+  const [accessProject, setAccessProject] = useState<{ id: number | string; name: string } | null>(null)
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [createName, setCreateName] = useState("")
 
@@ -189,7 +191,16 @@ export function WorkspaceSidebarPanel({
                                 </button>
                               }
                             />
-                            <DropdownMenuContent align="end">
+                            <DropdownMenuContent align="end" className="min-w-44">
+                              {activeTeamId && (project.access_role === "owner" || project.access_role === "manager") && (
+                                <>
+                                  <DropdownMenuItem onClick={() => setAccessProject({ id: project.id, name: project.name })}>
+                                    <Users className="size-3.5" aria-hidden="true" />
+                                    Manage access
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                </>
+                              )}
                               {isFileCreator(project, user?.id, user?.id === "guest") ? (
                                 <>
                                   <DropdownMenuItem onClick={() => {
@@ -226,6 +237,8 @@ export function WorkspaceSidebarPanel({
           </SidebarFooter>
         )}
       </Sidebar>
+
+      <ProjectAccessDialog project={accessProject} onOpenChange={(open) => { if (!open) setAccessProject(null) }} />
 
       <Dialog open={editingProject !== null} onOpenChange={(open) => { if (!open) setEditingProject(null) }}>
         <DialogContent className="sm:max-w-sm">

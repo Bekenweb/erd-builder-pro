@@ -36,7 +36,7 @@ export function NoteEditorRoute() {
   const noteProjectId = activeNote?.project_id ?? activeNote?.projectId;
   const noteProject = ctx.projects.find((project: any) => String(project.id) === String(noteProjectId));
   const noteProjectTeamId = noteProject?.team_id ?? noteProject?.teamId;
-  const commentFile: CommentFileRef | null = !isPublicView && !ctx.isGuest && noteProjectTeamId && teamState?.activeTeamId
+  const commentFile: CommentFileRef | null = !isPublicView && !ctx.isGuest && ctx.getFileAccessRole(activeNote) !== 'viewer' && noteProjectTeamId && teamState?.activeTeamId
     && String(noteProjectTeamId) === String(teamState.activeTeamId) && activeNote?.uid
     ? { projectId: String(noteProjectId), teamId: String(teamState.activeTeamId), featureType: 'note', fileId: String(activeNote.uid) }
     : null;

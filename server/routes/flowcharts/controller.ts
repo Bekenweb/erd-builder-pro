@@ -5,6 +5,7 @@ import { handleError } from "../../lib/utils.js";
 import { resolveNewFileProjectId, resolveOwnedProjectId } from "../../lib/security.js";
 import { prisma } from "../../lib/prisma.js";
 import * as fcService from "./service.js";
+import { fileAccessRole } from "../../lib/project-access.js";
 
 export async function list(req: ExpressRequest, res: ExpressResponse): Promise<void> {
   try {
@@ -44,7 +45,7 @@ export async function get(req: ExpressRequest, res: ExpressResponse): Promise<vo
     const userId = (req as any).user.id;
     const flowchart = await fcService.getFlowchart(req.params.uid, userId);
     if (!flowchart) { res.status(404).json({ error: "Flowchart not found" }); return; }
-    res.json(flowchart);
+    res.json({ ...flowchart, accessRole: await fileAccessRole(flowchart, userId) });
   } catch (err: any) {
     handleError(res, err, "Failed to fetch flowchart");
   }

@@ -3,6 +3,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { publishCloudWorkspaceSync } from "../../lib/cloud-live-sync.js";
 import { prisma } from "../../lib/prisma.js";
+import { canCommentRole, projectRoleFor } from "../../lib/project-access.js";
 import { currentTeamScope } from "../../lib/team-scope.js";
 import { handleError } from "../../lib/utils.js";
 import { resolveCommentAnchorLabel, type CommentFeature } from "./comment-anchors.js";
@@ -199,7 +200,14 @@ async function scopedFeatureContext(featureType: FeatureType, fileId: string, pr
   return rows[0] ? { ...rows[0], featureType } : null;
 }
 
+/** Resolves the Project or file a request targets; a Viewer reads but gets the generic not-found on every write (COL-004). */
 async function scopedResource(req: Request, actor: DiscussionActor): Promise<ScopedResource | null> {
+  const resource = await resolveResource(req, actor);
+  if (!resource || req.method === "GET" || req.path.endsWith("/read")) return resource;
+  return canCommentRole(await projectRoleFor(resource.projectId, actor.id)) ? resource : null;
+}
+
+async function resolveResource(req: Request, actor: DiscussionActor): Promise<ScopedResource | null> {
   if (!isProjectRoute(req)) {
     const diagram = await scopedDiagramContext((req.params as { uid: string }).uid, actor.teamId);
     if (!diagram) return null;

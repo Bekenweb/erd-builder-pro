@@ -43,3 +43,34 @@ export function fileIdentifierWhere(identifier: string, userId: string): Record<
 export function creatorFileIdentifierWhere(identifier: string, userId: string): Record<string, unknown> {
   return { AND: [fileIdentifierWhere(identifier, userId), { userId }] };
 }
+
+/** Who keeps full access to a Team file whatever a Project grant says: its creator, the Project creator and Team Managers (COL-004). */
+function fullAccessWhere(userId: string): Record<string, unknown>[] {
+  return [
+    { userId },
+    { project: { userId } },
+    { project: { team: { members: { some: { userId, role: "manager", status: "active" } } } } },
+  ];
+}
+
+/** File identifier constrained to people who may change its content: full access, or an Editor grant on its Project. */
+export function editableFileIdentifierWhere(identifier: string, userId: string): Record<string, unknown> {
+  if (currentTeamScope()?.mode !== "team") return creatorFileIdentifierWhere(identifier, userId);
+  return {
+    AND: [
+      fileIdentifierWhere(identifier, userId),
+      { OR: [...fullAccessWhere(userId), { project: { accessGrants: { some: { userId, role: "editor" } } } }] },
+    ],
+  };
+}
+
+/** File identifier constrained to people who may comment: everyone in scope except an explicit Viewer. */
+export function commentableFileIdentifierWhere(identifier: string, userId: string): Record<string, unknown> {
+  if (currentTeamScope()?.mode !== "team") return fileIdentifierWhere(identifier, userId);
+  return {
+    AND: [
+      fileIdentifierWhere(identifier, userId),
+      { OR: [...fullAccessWhere(userId), { NOT: { project: { accessGrants: { some: { userId, role: "viewer" } } } } }] },
+    ],
+  };
+}

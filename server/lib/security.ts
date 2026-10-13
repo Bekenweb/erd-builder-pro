@@ -1,6 +1,7 @@
 import type { NextFunction, Request as ExpressRequest, Response as ExpressResponse } from "express";
 import type { PrismaClient } from "@prisma/client";
 import { isDesktopMode, isLocalPostgres, isSsoAuthMode } from "./config.js";
+import { canCommentRole, projectRoleFor } from "./project-access.js";
 import { currentTeamScope, projectScopeWhere } from "./team-scope.js";
 
 export const isAdminUser = (req: ExpressRequest) => {
@@ -70,7 +71,12 @@ export const resolveNewFileProjectId = async (
   projectId: unknown,
 ): Promise<number | null> => {
   if (projectId !== null && projectId !== undefined && projectId !== "" && projectId !== "null") {
-    return resolveOwnedProjectId(prisma, userId, projectId);
+    const resolved = await resolveOwnedProjectId(prisma, userId, projectId);
+    // A Viewer reads a Team Project but adds nothing to it (COL-004); the Project reads as missing.
+    if (resolved !== null && currentTeamScope()?.mode === "team" && !canCommentRole(await projectRoleFor(resolved, userId))) {
+      throw new Error("Project not found");
+    }
+    return resolved;
   }
 
   const scope = currentTeamScope();
