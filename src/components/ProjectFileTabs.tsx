@@ -257,6 +257,11 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
       else if (tab.right > box.right) strip.scrollLeft += tab.right - box.right + 8
     }
     measureReach()
+    // Older WebViews have no ResizeObserver; the window size is then the only change that needs a new measurement.
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measureReach)
+      return () => window.removeEventListener('resize', measureReach)
+    }
     const observer = new ResizeObserver(measureReach)
     observer.observe(strip)
     return () => observer.disconnect()
