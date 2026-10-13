@@ -42,7 +42,7 @@ export async function update(req: ExpressRequest, res: ExpressResponse): Promise
     const { name } = req.body;
     const userId = (req as any).user.id;
     const result = await svc.updateProject(Number(req.params.id), userId, name);
-    if (!result.success) { res.status(403).json({ error: "Only the Project creator, a Team Manager, or the SuperAdmin can manage this Project." }); return; }
+    if (!result.success) { res.status(403).json({ error: "Only the Project creator can rename this Project." }); return; }
     res.json(result);
   } catch (err: any) {
     handleError(res, err, "Failed to update project");

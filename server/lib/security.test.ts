@@ -63,8 +63,16 @@ describe("resolveNewFileProjectId with Project roles (COL-004)", () => {
     vi.mocked(currentTeamScope).mockReturnValue({ mode: "team", teamId: "team-1" });
     for (const role of ["viewer", null]) {
       mocks.projectRole.mockResolvedValue(role);
-      await expect(resolveNewFileProjectId(prisma, "member", 7)).rejects.toThrow("Project not found");
+      await expect(resolveNewFileProjectId(prisma, "member", 7)).rejects.toMatchObject({ status: 404, message: "Project not found" });
     }
+  });
+
+  it("answers a missing Project with 404 and a Team file without a Project with 400", async () => {
+    vi.mocked(currentTeamScope).mockReturnValue({ mode: "team", teamId: "team-1" });
+    prisma.project.findFirst.mockResolvedValueOnce(null);
+    await expect(resolveNewFileProjectId(prisma, "member", 99)).rejects.toMatchObject({ status: 404 });
+    await expect(resolveNewFileProjectId(prisma, "member", null)).rejects.toMatchObject({ status: 400, message: "A Team project is required" });
+    await expect(resolveNewFileProjectId(prisma, "member", "abc")).rejects.toMatchObject({ status: 400, message: "Invalid project_id" });
   });
 
   it("never consults Project roles for Personal files", async () => {
