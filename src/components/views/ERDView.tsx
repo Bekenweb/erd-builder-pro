@@ -704,8 +704,8 @@ const ERDViewComponent = ({
       )}
 
       {!pendingDiff && (
-        <div className="absolute top-6 inset-x-0 z-10 flex justify-center pointer-events-none">
-          <div className="flex items-center gap-1.5 p-1.5 bg-background/95 backdrop-blur-md border border-border/50 rounded-2xl shadow-2xl pointer-events-auto max-w-[95vw] overflow-x-auto no-scrollbar">
+        <div className="absolute top-6 inset-x-0 z-10 flex justify-center px-3 pointer-events-none">
+          <div className="flex items-center gap-1.5 p-1.5 bg-background/95 backdrop-blur-md border border-border/50 rounded-2xl shadow-2xl pointer-events-auto max-w-full overflow-x-auto no-scrollbar">
             <JumpToNode nodes={nodes} label="Table" />
             {onRefresh && (
               <Button onClick={onRefresh} disabled={isRefreshingDocument} variant="outline" size="icon" className="h-9 w-9 border-border hover:bg-muted bg-muted/50 cursor-pointer" title="Refresh to the latest version" aria-label="Refresh to the latest version">

@@ -3,7 +3,8 @@ import { prisma } from "../../lib/prisma.js";
 import { captureEntityRevisionSafely } from "../../lib/entity-history.js";
 import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
 import { createPersonalFile } from "../../lib/personal-file-quota.js";
-import { creatorFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
+import { commentableFileIdentifierWhere, creatorFileIdentifierWhere, editableFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
+import { isForeignProjectMove } from "../../lib/project-access.js";
 import { replacePrivateStorageUrls } from "../../lib/storage-access.js";
 import { versionedWhere } from "../../lib/versioned-write.js";
 
@@ -123,8 +124,15 @@ export async function updateNote(
 
   const existingContent = replacePrivateStorageUrls(existing.content ?? "", {});
   const content = data.content === undefined ? undefined : replacePrivateStorageUrls(data.content, {});
-  // Other Team members read a Note; the only write they make is adding a comment anchor (DATA-004).
-  if (existing.userId !== userId && !isCommentAnchorOnlyChange(existingContent, content, data)) return null;
+  if (existing.userId !== userId) {
+    // Full access or an Editor grant writes the Note (COL-004). Everyone else except a Viewer may only add a comment anchor (DATA-004).
+    const editable = await prisma.note.count({ where: editableFileIdentifierWhere(uid, userId) }) > 0;
+    if (!editable) {
+      if (!isCommentAnchorOnlyChange(existingContent, content, data)) return null;
+      if (await prisma.note.count({ where: commentableFileIdentifierWhere(uid, userId) }) === 0) return null;
+    }
+  }
+  if (isForeignProjectMove(existing, userId, data.projectId)) return null;
 
   const updatePayload: any = { updatedAt: new Date() };
   if (isDesktopMode() || isLocalPostgres()) updatePayload.version = (data.expectedVersion ?? existing.version ?? 0) + 1;

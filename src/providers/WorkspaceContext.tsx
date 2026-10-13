@@ -2,6 +2,7 @@ import React, { createContext, useContext } from 'react';
 import { Node, Edge, OnNodesChange, OnEdgesChange, OnConnect } from '@xyflow/react';
 import { BroadcastMessageType } from '../hooks/useBroadcastChannel';
 import { Entity, AppView, Project } from '../types';
+import type { FileAccessRole } from '@/lib/fileOwnership';
 
 export interface FlowchartExportHandler {
   exportAll: () => void;
@@ -26,6 +27,8 @@ export interface WorkspaceContextValue {
   isPublicView: boolean;
   /** True for a Team file owned by someone else: it opens read-only (DATA-004). */
   isReadOnlyFile: (file: any) => boolean;
+  /** The signed-in user's Project-level role on a file, or null when it is not known yet (COL-004). */
+  getFileAccessRole: (file: any) => FileAccessRole | null;
   setIsPublicView: (v: boolean) => void;
   publicData: any;
 

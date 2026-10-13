@@ -792,8 +792,8 @@ export const FlowchartView = React.memo(({
 
       {/* Top Bar */}
       {!isReadOnly && (
-        <div className="absolute top-6 inset-x-0 z-10 flex justify-center pointer-events-none">
-          <div className="flex items-center gap-1.5 p-1.5 bg-background/95 backdrop-blur-md border border-border/50 rounded-2xl shadow-2xl pointer-events-auto max-w-[95vw] overflow-x-auto no-scrollbar">
+        <div className="absolute top-6 inset-x-0 z-10 flex justify-center px-3 pointer-events-none">
+          <div className="flex items-center gap-1.5 p-1.5 bg-background/95 backdrop-blur-md border border-border/50 rounded-2xl shadow-2xl pointer-events-auto max-w-full overflow-x-auto no-scrollbar">
             <JumpToNode nodes={nodes} label="Symbol" />
             {canvasGroups.length > 0 && (
               <>

@@ -1,6 +1,7 @@
 import { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import { handleError } from "../../lib/utils.js";
 import * as svc from "./service.js";
+import { clearProjectAccess, isGrantableRole, listProjectAccess, setProjectAccess, type AccessResult } from "./access.js";
 
 export async function list(req: ExpressRequest, res: ExpressResponse): Promise<void> {
   try {
@@ -113,5 +114,37 @@ export async function files(req: ExpressRequest, res: ExpressResponse): Promise<
     res.json(await svc.listProjectFiles(projectId, userId, includeDbClient));
   } catch (err: any) {
     handleError(res, err, "Failed to fetch project files");
+  }
+}
+
+// ── Project access (COL-004) ──
+
+function sendAccess<T>(res: ExpressResponse, result: AccessResult<T>): void {
+  if ("data" in result) res.json(result.data);
+  else res.status(result.status).json({ error: result.error });
+}
+
+export async function listAccess(req: ExpressRequest, res: ExpressResponse): Promise<void> {
+  try {
+    sendAccess(res, await listProjectAccess(Number(req.params.id), (req as any).user.id));
+  } catch (err: any) {
+    handleError(res, err, "Failed to load project access");
+  }
+}
+
+export async function setAccess(req: ExpressRequest, res: ExpressResponse): Promise<void> {
+  try {
+    if (!isGrantableRole(req.body?.role)) { res.status(400).json({ error: "Role must be editor, commenter or viewer" }); return; }
+    sendAccess(res, await setProjectAccess(Number(req.params.id), (req as any).user.id, req.params.userId, req.body.role));
+  } catch (err: any) {
+    handleError(res, err, "Failed to update project access");
+  }
+}
+
+export async function clearAccess(req: ExpressRequest, res: ExpressResponse): Promise<void> {
+  try {
+    sendAccess(res, await clearProjectAccess(Number(req.params.id), (req as any).user.id, req.params.userId));
+  } catch (err: any) {
+    handleError(res, err, "Failed to remove project access");
   }
 }

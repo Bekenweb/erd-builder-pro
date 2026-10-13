@@ -3,7 +3,8 @@ import { captureEntityRevisionSafely } from "../../lib/entity-history.js";
 import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
 import { createPersonalFile } from "../../lib/personal-file-quota.js";
 import { versionedWhere } from "../../lib/versioned-write.js";
-import { creatorFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
+import { creatorFileIdentifierWhere, editableFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
+import { isForeignProjectMove } from "../../lib/project-access.js";
 
 // Helper: build uid-or-id where clause that works with both UUIDs and numeric IDs
 // Prisma's @prisma/adapter-pg throws "Argument id is missing" when id is NaN
@@ -13,6 +14,10 @@ function uidWhere(uid: string, userId: string) {
 
 function creatorUidWhere(uid: string, userId: string) {
   return creatorFileIdentifierWhere(uid, userId);
+}
+
+function editableUidWhere(uid: string, userId: string) {
+  return editableFileIdentifierWhere(uid, userId);
 }
 
 function conditions(userId: string, query: {
@@ -119,9 +124,10 @@ export async function updateFlowchart(
 ) {
   if (!prisma) throw new Error("Database connection not available");
   const existing = await prisma.flowchart.findFirst({
-    where: creatorUidWhere(uid, userId),
+    where: editableUidWhere(uid, userId),
   });
   if (!existing) return null;
+  if (isForeignProjectMove(existing, userId, data.projectId)) return null;
 
   const updatePayload: any = { updatedAt: new Date() };
   if (isDesktopMode() || isLocalPostgres()) updatePayload.version = (data.expectedVersion ?? existing.version ?? 0) + 1;

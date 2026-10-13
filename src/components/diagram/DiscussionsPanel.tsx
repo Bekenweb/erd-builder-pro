@@ -407,6 +407,7 @@ export function DiscussionsPanel({
   anchorContext,
   onContextSelected,
   anchorPreview,
+  readOnly = false,
 }: {
   projectId: string;
   teamId: string;
@@ -417,6 +418,8 @@ export function DiscussionsPanel({
   onContextSelected?: (context: CollaborationContext) => void;
   /** Text of the commented content (e.g. a Note block); null when unknown. */
   anchorPreview?: (anchorId: string) => string | null;
+  /** A Project Viewer reads threads but cannot start, reply to, resolve or edit them (COL-004). */
+  readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"discussions" | "comments">("discussions");
@@ -719,7 +722,7 @@ export function DiscussionsPanel({
         setSelectedThreadId(group.representative.id);
         await loadAnchor(anchor, true, false, group.representative.id);
       } else {
-        setScreen("compose");
+        setScreen(readOnly ? "list" : "compose");
       }
       if (!cancelled) setPendingCommentOpen(null);
     })();
@@ -1020,7 +1023,7 @@ export function DiscussionsPanel({
               <h2 className="truncate text-sm font-semibold">{title}</h2>
               <p id={descriptionId} className="truncate text-xs text-muted-foreground">{description}</p>
             </div>
-            {activeTab === "discussions" && screen === "thread" && activeThread && (
+            {activeTab === "discussions" && screen === "thread" && activeThread && !readOnly && (
               <DropdownMenu>
                 <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" aria-label="Discussion actions"><MoreHorizontal aria-hidden="true" className="size-4" /></Button>} />
                 <DropdownMenuContent align="end" className="w-44" positionerClassName="z-[210]">
@@ -1047,9 +1050,9 @@ export function DiscussionsPanel({
 
         <div className="shrink-0 border-b border-border/70 px-3 py-2">
           <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-            <TabsList className="mx-auto max-sm:min-h-11">
-              <TabsTrigger value="discussions" className="max-sm:min-h-11">Discussions</TabsTrigger>
-              <TabsTrigger value="comments" className="max-sm:min-h-11">Comments</TabsTrigger>
+            <TabsList className="mx-auto">
+              <TabsTrigger value="discussions">Discussions</TabsTrigger>
+              <TabsTrigger value="comments">Comments</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -1059,9 +1062,9 @@ export function DiscussionsPanel({
             {activeTab === "discussions" ? (
               <div className="shrink-0 border-b border-border/70 px-3 py-2">
                 <Tabs value={discussionScope} onValueChange={(value) => setDiscussionScope(value as "file" | "project")} className="w-full">
-                  <TabsList className="mx-auto max-sm:min-h-11">
-                    <TabsTrigger value="file" className="max-sm:min-h-11">This File</TabsTrigger>
-                    <TabsTrigger value="project" className="max-sm:min-h-11">All Project</TabsTrigger>
+                  <TabsList className="mx-auto">
+                    <TabsTrigger value="file">This File</TabsTrigger>
+                    <TabsTrigger value="project">All Project</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
@@ -1085,7 +1088,7 @@ export function DiscussionsPanel({
               {!loadingThreads && !loadError && (isCommentRail ? commentGroups.length : threads.length) === 0 && (
                 <div className="mx-4 mt-4 rounded-lg border border-dashed border-border px-4 py-8 text-center">
                   <p className="text-sm font-medium">{activeTab === "comments" ? "No comments on this file yet." : "No discussions in this view yet."}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">{activeTab === "comments" ? "Use the node context menu to start one." : "Start a thread to capture a question or design decision."}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{readOnly ? "You can read threads here, but only members with comment access can start one." : activeTab === "comments" ? "Use the node context menu to start one." : "Start a thread to capture a question or design decision."}</p>
                 </div>
               )}
               {!loadError && isCommentRail && commentGroups.map((group) => {
@@ -1150,12 +1153,12 @@ export function DiscussionsPanel({
                 );
               })}
             </div>
-            <TooltipProvider delay={250}>
+            {!readOnly && (<TooltipProvider delay={250}>
               <Tooltip>
                 <TooltipTrigger render={<Button type="button" size="icon-lg" className="absolute bottom-4 right-4 z-10 min-h-11 min-w-11 rounded-full shadow-lg" aria-label={activeTab === "comments" ? "Add a comment" : "Start a discussion"} onClick={startCompose}><Plus aria-hidden="true" /></Button>} />
                 <TooltipContent side="left">{activeTab === "comments" ? "Add a comment" : "Start a discussion"}</TooltipContent>
               </Tooltip>
-            </TooltipProvider>
+            </TooltipProvider>)}
           </div>
         )}
 
@@ -1184,7 +1187,7 @@ export function DiscussionsPanel({
                       : <span className="block truncate text-xs text-muted-foreground">{activeThread.anchorType === "general" ? "General" : activeThread.anchorType}{activeThread.featureType && ` · ${featureLabel(activeThread.featureType)}`}</span>;
                   })()}
                 </div>
-                <TooltipProvider delay={250}>
+                {!readOnly && (<TooltipProvider delay={250}>
                   <Tooltip>
                     <TooltipTrigger render={
                       <Button type="button" variant="ghost" size="icon-xs" className="shrink-0" aria-label={activeThread.status === "open" ? "Resolve" : "Reopen"} onClick={() => void changeStatus()} disabled={sending}>
@@ -1193,7 +1196,7 @@ export function DiscussionsPanel({
                     } />
                     <TooltipContent side="left">{activeThread.status === "open" ? "Resolve" : "Reopen"}</TooltipContent>
                   </Tooltip>
-                </TooltipProvider>
+                </TooltipProvider>)}
               </div>
             )}
             {threadError && (
@@ -1224,7 +1227,7 @@ export function DiscussionsPanel({
                           <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor>
                             <DiscussionMessage
                               message={message}
-                              canEdit={activeTab === "discussions" && message.authorId === userId}
+                              canEdit={activeTab === "discussions" && message.authorId === userId && !readOnly}
                               editing={editingMessageId === message.id}
                               editDraft={editDraft}
                               editOriginalBody={editOriginalBody}
@@ -1244,8 +1247,9 @@ export function DiscussionsPanel({
                 </MessageScrollerProvider>
               </TooltipProvider>
             )}
-            {activeThread.status === "open" && !threadError && <ReplyBox userName={userName || "You"} value={draft} onChange={setDraft} onSubmit={() => void submitReply()} disabled={sending} submitLabel={sending ? "Sending…" : "Send reply"} />}
-            {activeThread.status === "resolved" && <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">Reopen this thread to reply.</p>}
+            {activeThread.status === "open" && !threadError && !readOnly && <ReplyBox userName={userName || "You"} value={draft} onChange={setDraft} onSubmit={() => void submitReply()} disabled={sending} submitLabel={sending ? "Sending…" : "Send reply"} />}
+            {activeThread.status === "resolved" && !readOnly && <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">Reopen this thread to reply.</p>}
+            {readOnly && <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">You can read this thread but not reply to it.</p>}
           </div>
         )}
       </PopoverContent>

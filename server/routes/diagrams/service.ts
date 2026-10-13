@@ -1,6 +1,7 @@
 import { prisma } from "../../lib/prisma.js";
 import { createPersonalFile } from "../../lib/personal-file-quota.js";
-import { creatorFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere } from "../../lib/team-scope.js";
+import { creatorFileIdentifierWhere, editableFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere } from "../../lib/team-scope.js";
+import { isForeignProjectMove } from "../../lib/project-access.js";
 import { logger } from "../../lib/logger.js";
 
 // ── Helpers ──
@@ -11,6 +12,10 @@ function uidWhere(uid: string, userId: string) {
 
 function creatorUidWhere(uid: string, userId: string) {
   return creatorFileIdentifierWhere(uid, userId);
+}
+
+function editableUidWhere(uid: string, userId: string) {
+  return editableFileIdentifierWhere(uid, userId);
 }
 
 function whereClause(userId: string, query: {
@@ -305,9 +310,10 @@ export async function updateDiagram(
 ) {
   if (!prisma) throw new Error("Database connection not available");
   const existing = await prisma.diagram.findFirst({
-    where: creatorUidWhere(uid, userId),
+    where: editableUidWhere(uid, userId),
   });
   if (!existing) return null;
+  if (isForeignProjectMove(existing, userId, data.projectId)) return null;
 
   const updatePayload: any = {};
   if (data.name !== undefined) updatePayload.name = data.name;

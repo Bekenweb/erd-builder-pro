@@ -22,7 +22,7 @@ export function FlowchartEditorRoute() {
   const flowchartFileId = activeFlowchart?.uid ?? activeFlowchartId;
   const flowchartProject = ctx.projects.find((project: any) => String(project.id) === String(flowchartProjectId));
   const flowchartProjectTeamId = flowchartProject?.team_id ?? flowchartProject?.teamId;
-  const commentsEnabled = Boolean(!isPublicView && !ctx.isGuest && flowchartProjectTeamId && teamState.activeTeamId
+  const commentsEnabled = Boolean(!isPublicView && !ctx.isGuest && ctx.getFileAccessRole(activeFlowchart) !== 'viewer' && flowchartProjectTeamId && teamState.activeTeamId
     && String(flowchartProjectTeamId) === String(teamState.activeTeamId));
   const commentMarkers = useMemo<ERDCommentsConfig | null>(() => (
     commentsEnabled && flowchartProjectId != null && flowchartProjectTeamId && ctx.user?.id && flowchartFileId != null

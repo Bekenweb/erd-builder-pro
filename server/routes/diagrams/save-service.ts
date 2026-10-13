@@ -5,7 +5,7 @@ import type { ConnectionInfo } from "../../lib/db-connectors/types.js";
 import { encrypt } from "../../lib/crypto.js";
 import { captureEntityRevisionSafely } from "../../lib/entity-history.js";
 import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
-import { creatorFileIdentifierWhere } from "../../lib/team-scope.js";
+import { editableFileIdentifierWhere } from "../../lib/team-scope.js";
 import { versionedWhere } from "../../lib/versioned-write.js";
 import {
   uidWhereClause,
@@ -42,8 +42,8 @@ export async function saveDiagram(
   }
 
   const currentDiagram = await prisma.diagram.findFirst({
-    // Only the creator writes a Team file until per-file roles and realtime exist (DATA-004).
-    where: creatorFileIdentifierWhere(identifier, userId),
+    // The creator, the Project creator, a Team Manager or a Project Editor writes a Team file (COL-004).
+    where: editableFileIdentifierWhere(identifier, userId),
     select: {
       id: true, uid: true, version: true, updatedAt: true, name: true, data: true,
       sourceType: true, dbmlSource: true, viewportX: true, viewportY: true, viewportZoom: true,

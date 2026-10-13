@@ -1,4 +1,4 @@
-import { isFileViewer } from '@/lib/fileOwnership';
+import { fileAccessRole, isFileViewer } from '@/lib/fileOwnership';
 import { EntityNodeProvider } from '@/contexts/EntityNodeContext';
 import React, {
   useState, useCallback, useEffect, useMemo, useRef,
@@ -240,9 +240,17 @@ export function WorkspaceProvider({
     diagramsTotal, isLoading: isDiagramsLoading,
   } = useDiagrams(isAuthenticated, view, isGuest);
 
-  // A file owned by another Team member opens read-only: it is never written to the local draft or the server (DATA-004).
+  // A Team file opens read-only unless the user created it or holds Editor or Manager access to its Project; it is
+  // then never written to the local draft or the server (DATA-004, COL-004). The Project list arrives further down, so read it by ref.
   const currentUserId = user?.id;
-  const isReadOnlyFile = useCallback((file: any) => isFileViewer(file, currentUserId, isGuest), [currentUserId, isGuest]);
+  const projectListRef = useRef<any[]>([]);
+  const projectRoleOf = useCallback((file: any) => {
+    const projectId = file?.project_id ?? file?.projectId;
+    const project = projectListRef.current.find((item: any) => String(item.id) === String(projectId));
+    return project?.access_role ?? project?.accessRole ?? null;
+  }, []);
+  const isReadOnlyFile = useCallback((file: any) => isFileViewer(file, currentUserId, isGuest, projectRoleOf(file)), [currentUserId, isGuest, projectRoleOf]);
+  const getFileAccessRole = useCallback((file: any) => fileAccessRole(file, currentUserId, isGuest, projectRoleOf(file)), [currentUserId, isGuest, projectRoleOf]);
   const diagramListRef = useRef(diagrams);
   diagramListRef.current = diagrams;
   const saveDiagram = useCallback<typeof saveDiagramRaw>(async (...args) => {
@@ -315,6 +323,7 @@ export function WorkspaceProvider({
     restoreProject, deleteProjectPermanent,
     isLoading: isProjectsLoading,
   } = useProjects(isGuest);
+  projectListRef.current = projects;
 
   const {
     drawings, setDrawings, activeDrawingUid: activeDrawingId, setActiveDrawingUid: setActiveDrawingId,
@@ -1084,6 +1093,7 @@ export function WorkspaceProvider({
     user,
     isGuest,
     isReadOnlyFile,
+    getFileAccessRole,
     handleLogout: _handleLogout,
 
     view,
@@ -1204,7 +1214,7 @@ export function WorkspaceProvider({
     checkForUpdates, downloadUpdate,
     isWebOutdated, showOutdatedBadge,
   }), [
-    isReadOnlyFile,
+    isReadOnlyFile, getFileAccessRole,
     user, isGuest, _handleLogout, view, sidebarView,
     isPublicView, setIsPublicView, publicData,
     diagrams, notes, drawings, flowcharts, projects, trashData, nodes, edges, setNodes, setEdges,

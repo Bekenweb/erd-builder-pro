@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   executeRaw: vi.fn(),
   transaction: vi.fn(),
   publish: vi.fn(),
+  role: "commenter" as string | null,
 }));
 
 vi.mock("../../lib/config.js", () => ({ isSsoAuthMode: () => mocks.ssoMode }));
@@ -21,6 +22,10 @@ vi.mock("../../lib/prisma.js", () => ({
   },
 }));
 vi.mock("../../lib/cloud-live-sync.js", () => ({ publishCloudWorkspaceSync: mocks.publish }));
+vi.mock("../../lib/project-access.js", () => ({
+  canCommentRole: (role: string | null) => role !== null && role !== "viewer",
+  projectRoleFor: async () => mocks.role,
+}));
 
 const { default: discussionsRouter, requireCloudDiscussionTeam, setCollaborationResource } = await import("./discussions.js");
 
@@ -53,6 +58,7 @@ describe("Cloud ERD discussions scope", () => {
     mocks.executeRaw.mockReset();
     mocks.transaction.mockReset();
     mocks.publish.mockReset();
+    mocks.role = "commenter";
     mocks.transaction.mockImplementation((callback: (tx: unknown) => unknown) => callback({
       $queryRawUnsafe: (...args: unknown[]) => mocks.queryRaw(...args),
       $executeRawUnsafe: (...args: unknown[]) => mocks.executeRaw(...args),
@@ -940,5 +946,60 @@ describe("Cloud ERD discussions scope", () => {
     });
     expect(mocks.executeRaw).toHaveBeenCalledTimes(1);
     expect(mocks.publish).not.toHaveBeenCalled();
+  });
+  it.each(["commenter", "editor", "manager", "owner"])("lets a %s start a thread and reply (COL-004)", async (role) => {
+    mocks.role = role;
+    await withServer(async (url) => {
+      const response = await fetch(`${url}/api/diagrams/diagram-uid/discussions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: "Looks good" }),
+      });
+      expect(response.status).toBe(201);
+    });
+  });
+
+  it("lets a Viewer read threads and mark them read but rejects every write with a generic 404 (COL-004)", async () => {
+    mocks.role = "viewer";
+    mocks.queryRaw.mockImplementation(async (query: string) => {
+      if (query.includes('JOIN "projects"')) return [{ id: 42, projectId: 7 }];
+      if (query.includes('FROM "projects" p') && !query.includes('JOIN "projects"')) return [{ id: 7, name: "Workspace" }];
+      if (query.includes("COUNT(*)")) return [{ count: 0 }];
+      return [];
+    });
+    const json = { "Content-Type": "application/json" };
+
+    await withServer(async (url) => {
+      expect((await fetch(`${url}/api/diagrams/diagram-uid/discussions`)).status).toBe(200);
+
+      const writes = [
+        fetch(`${url}/api/diagrams/diagram-uid/discussions`, { method: "POST", headers: json, body: JSON.stringify({ body: "Hi" }) }),
+        fetch(`${url}/api/projects/7/discussions/thread-1/messages`, { method: "POST", headers: json, body: JSON.stringify({ body: "Reply" }) }),
+        fetch(`${url}/api/projects/7/discussions/thread-1/messages/message-1`, { method: "PATCH", headers: json, body: JSON.stringify({ body: "Edit", expectedBody: "Old" }) }),
+        fetch(`${url}/api/projects/7/discussions/thread-1/messages/message-1`, { method: "DELETE", headers: json, body: JSON.stringify({ expectedBody: "Old" }) }),
+        fetch(`${url}/api/projects/7/discussions/thread-1`, { method: "PATCH", headers: json, body: JSON.stringify({ status: "resolved" }) }),
+        fetch(`${url}/api/projects/7/discussions/thread-1`, { method: "DELETE" }),
+        fetch(`${url}/api/projects/7/comments`, { method: "POST", headers: json, body: JSON.stringify({ body: "Note", context: { type: "table", id: "t1", featureType: "diagram", fileId: "diagram-uid" } }) }),
+      ];
+      for (const response of await Promise.all(writes)) {
+        expect(response.status).toBe(404);
+        expect(await response.json()).toEqual({ error: "Resource not found" });
+      }
+
+    });
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.executeRaw).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    // Marking a thread read is not a write to the discussion, so a Viewer's unread badges still clear.
+    mocks.queryRaw.mockImplementation(async (query: string) => {
+      if (query.includes('FROM "projects" p')) return [{ id: 7, name: "Workspace" }];
+      if (query.includes('SELECT t."id"') && query.includes('FROM "discussion_threads"')) return [{ id: "thread-1" }];
+      return [];
+    });
+    await withServer(async (url) => {
+      expect((await fetch(`${url}/api/projects/7/discussions/thread-1/read`, { method: "POST" })).status).toBe(200);
+    });
+    expect(mocks.executeRaw).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO "discussion_reads"'), "thread-1", "member-a");
   });
 });

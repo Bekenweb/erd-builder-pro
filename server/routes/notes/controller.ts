@@ -11,6 +11,7 @@ import { getStorageClientForUser } from "../../lib/storage.js";
 import { generateSignedUrl } from "../../lib/storage.js";
 import { privateStorageKeysFromMarkup, replacePrivateStorageUrls } from "../../lib/storage-access.js";
 import { resolveStorage } from "../common/controller.js";
+import { fileAccessRole } from "../../lib/project-access.js";
 
 async function signNoteAssets(note: any): Promise<any> {
   if (!note.content || !note.userId) return note;
@@ -68,7 +69,7 @@ export async function get(req: ExpressRequest, res: ExpressResponse): Promise<vo
     const note = await notesService.getNote(req.params.uid, userId);
     if (!note) { res.status(404).json({ error: "Note not found" }); return; }
     res.setHeader("Cache-Control", "private, no-store");
-    res.json(await signNoteAssets(note));
+    res.json({ ...(await signNoteAssets(note)), accessRole: await fileAccessRole(note, userId) });
   } catch (err: any) {
     handleError(res, err, "Failed to fetch note");
   }

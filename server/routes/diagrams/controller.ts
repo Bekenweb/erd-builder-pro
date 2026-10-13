@@ -7,6 +7,7 @@ import { prisma } from "../../lib/prisma.js";
 import * as diagService from "./service.js";
 import * as saveService from "./save-service.js";
 import type { ConnectionInfo } from "../../lib/db-connectors/types.js";
+import { fileAccessRole } from "../../lib/project-access.js";
 
 export async function list(req: ExpressRequest, res: ExpressResponse): Promise<void> {
   try {
@@ -49,7 +50,7 @@ export async function get(req: ExpressRequest, res: ExpressResponse): Promise<vo
     const userId = (req as any).user.id;
     const result = await saveService.getDiagramWithData(req.params.uid, userId);
     if (!result) { res.status(404).json({ error: "Diagram not found" }); return; }
-    res.json(result);
+    res.json({ ...result, accessRole: await fileAccessRole(result, userId) });
   } catch (err: any) {
     handleError(res, err, "Failed to fetch diagram");
   }

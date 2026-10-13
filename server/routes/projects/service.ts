@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import { getStorageClientForUser } from "../../lib/storage.js";
 import { isDesktopMode } from "../../lib/config.js";
 import { currentTeamScope, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
+import { projectRolesFor } from "../../lib/project-access.js";
 
 // ── List ──
 
@@ -95,8 +96,10 @@ export async function listProjects(
     prisma?.flowchart.findMany({ where: uFlowFilter, orderBy: { createdAt: "desc" }, select: { id: true, uid: true, title: true, updatedAt: true, isDeleted: true, projectId: true } }) || Promise.resolve([]),
   ]);
 
+  const roles = await projectRolesFor(projects || [], userId);
   const projectsWithFiles = (projects || []).map((project: any) => ({
     ...project,
+    accessRole: roles.get(Number(project.id)) ?? "owner",
     diagrams: [], notes: [], drawings: [], flowcharts: [],
     files_count: 0,
   }));

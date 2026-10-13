@@ -75,6 +75,9 @@ export interface Project {
   uid?: string;
   name: string;
   user_id?: string | null;
+  team_id?: string | null;
+  /** The signed-in user's role on this Project: owner, manager, editor, commenter or viewer (COL-004). */
+  access_role?: 'owner' | 'manager' | 'editor' | 'commenter' | 'viewer';
   is_deleted: boolean;
   deleted_at?: string;
   created_at: string;
