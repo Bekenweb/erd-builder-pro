@@ -7,7 +7,7 @@ import { backfillUids } from "./lib/startup-migration.js";
 import { applySchemaMigrations } from "./lib/startup-migration.js";
 import { prisma } from "./lib/prisma.js";
 import { logger } from "./lib/logger.js";
-import { isDesktopMode, useLocalAuth } from "./lib/config.js";
+import { isDesktopMode, isSsoAuthMode, useLocalAuth } from "./lib/config.js";
 import { startCloudAiConfigRefresh, startCloudAiUsageRetention } from "./lib/cloud-ai.js";
 import { startCloudTelemetry } from "./lib/cloud-telemetry.js";
 import { startSelfHostCapacityReportScheduler } from "./lib/self-host-capacity-report.js";
@@ -296,9 +296,10 @@ async function startup(): Promise<void> {
 /**
  * Ensure local PostgreSQL has an admin role from the existing database users.
  * Desktop/CLI admin bootstrapping is handled by ensureDesktopUser().
+ * Cloud has no local SuperAdmin: administration belongs to the SaaS control plane.
  */
 async function seedAdminUser(): Promise<void> {
-  if (isDesktopMode()) return;
+  if (isDesktopMode() || isSsoAuthMode()) return;
 
   const existingAdmin = await prisma!.user.findFirst({
     where: { isSuperAdmin: true } as any,
