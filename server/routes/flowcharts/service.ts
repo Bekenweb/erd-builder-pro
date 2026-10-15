@@ -1,5 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
-import { captureEntityRevisionSafely } from "../../lib/entity-history.js";
+import { captureEntityRevisionSafely, deleteEntityRevisions } from "../../lib/entity-history.js";
 import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
 import { createPersonalFile } from "../../lib/personal-file-quota.js";
 import { versionedWhere } from "../../lib/versioned-write.js";
@@ -185,6 +185,7 @@ export async function permanentDeleteFlowchart(uid: string, userId: string) {
   if (!existing) return null;
 
   await prisma?.flowchart.delete({ where: { id: existing.id } });
+  await deleteEntityRevisions("flowcharts", [existing.id]);
   return { success: true };
 }
 

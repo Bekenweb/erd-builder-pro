@@ -2,9 +2,12 @@ import { Request as ExpressRequest, Response as ExpressResponse } from "express"
 import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { prisma } from "../../lib/prisma.js";
 import { logger } from "../../lib/logger.js";
-import { fetchTrashItems } from "./service.js";
-import { StorageConfig, buildS3Client, uploadToS3, deleteFromS3, getEnvStorageConfig, generateSignedUrl, serveFromS3 } from "../../lib/storage.js";
-import { getStorageAssetAccess, normalizeStorageKey, requiresPrivateStorage } from "../../lib/storage-access.js";
+import { isDesktopMode } from "../../lib/config.js";
+import { emptyTrash, fetchTrashItems } from "./service.js";
+import { isSsoAuthMode } from "../../lib/config.js";
+import { StorageConfig, buildS3Client, uploadToS3, deleteFromS3, getEnvStorageConfig, generateSignedUrl, serveFromS3, objectExists } from "../../lib/storage.js";
+import { StorageQuotaError, requestObjectDeletion, reserveUpload, resolveStorageScope, settleUpload } from "../../lib/storage-usage.js";
+import { detectUploadImageType, getStorageAssetAccess, normalizeStorageKey, requiresPrivateStorage } from "../../lib/storage-access.js";
 
 /**
  * Try to resolve an S3 client and storage config, checking:
@@ -54,6 +57,19 @@ export async function getTrash(req: ExpressRequest, res: ExpressResponse): Promi
   } catch (err: any) {
     logger.error({ err }, "Trash fetch error:");
     res.status(500).json({ error: "Failed to fetch trash items" });
+  }
+}
+
+export async function emptyTrashHandler(req: ExpressRequest, res: ExpressResponse): Promise<void> {
+  if (!isSsoAuthMode()) {
+    res.status(404).json({ error: "Not available" });
+    return;
+  }
+  try {
+    res.json({ deleted: await emptyTrash((req as any).user.id) });
+  } catch (err: any) {
+    logger.error({ err }, "Empty trash error:");
+    res.status(500).json({ error: "Failed to empty trash" });
   }
 }
 
@@ -111,6 +127,12 @@ export async function uploadFile(req: any, res: ExpressResponse): Promise<void> 
     return;
   }
 
+  const fileType = detectUploadImageType(req.file.buffer);
+  if (!fileType) {
+    res.status(400).json({ error: "File type is not allowed. Use JPEG, PNG, WebP or SVG." });
+    return;
+  }
+
   const storage = await resolveStorage(userId);
   if (!storage) {
     res.status(500).json({ error: "Storage is not configured. Please add storage configuration in Settings." });
@@ -119,16 +141,20 @@ export async function uploadFile(req: any, res: ExpressResponse): Promise<void> 
 
   try {
     const { s3, config } = storage;
-    const feature = String(req.body.feature || "general").trim().toLowerCase();
+    const feature = String(req.body.feature);
     if (requiresPrivateStorage(feature) && config.publicUrl) {
       res.status(409).json({ error: "Private document assets require storage without a public URL." });
       return;
     }
     const file = req.file;
-    const path = await import("node:path");
-    const fileExt = path.extname(file.originalname);
-    const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${fileExt}`;
-    const key = `erd-builder-pro/${feature}/${fileName}`;
+    const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}.${fileType.ext}`;
+    // PostgreSQL modes group objects by owner scope (team/<id> or user/<id>); Desktop and CLI keep the old layout.
+    const scope = await resolveStorageScope(userId);
+    const folder = scope ? `${scope.prefix}/${feature}` : feature;
+    const key = `erd-builder-pro/${folder}/${fileName}`;
+    if (scope) {
+      await reserveUpload({ scope, key, userId, feature, mimeType: fileType.mime, bytes: file.size });
+    }
 
     // Build the URL based on storage config:
     // - If publicUrl is set → direct public URL
@@ -137,15 +163,15 @@ export async function uploadFile(req: any, res: ExpressResponse): Promise<void> 
     const host = req.get("host") || "localhost:3099";
     const originHost = `${protocol}://${host}`;
 
-    const url = await uploadToS3(
-      s3 as any,
-      config,
-      feature,
-      fileName,
-      file.buffer,
-      file.mimetype,
-      originHost,
-    );
+    let url: string;
+    try {
+      url = await uploadToS3(s3 as any, config, folder, fileName, file.buffer, fileType.mime, originHost);
+      if (scope) await settleUpload(key, true);
+    } catch (err) {
+      // An unknown PutObject outcome is settled by asking the bucket; if that fails too, nightly cleanup settles it.
+      if (scope) await objectExists(s3 as any, config, key).then((stored) => settleUpload(key, stored)).catch(() => undefined);
+      throw err;
+    }
 
     // Private document assets use a short-lived signed URL; the proxy remains a fallback.
     let signedUrl: string | null = null;
@@ -164,6 +190,10 @@ export async function uploadFile(req: any, res: ExpressResponse): Promise<void> 
       proxyUrl: config.publicUrl ? null : `${originHost}/api/serve/${key}`,
     });
   } catch (err: any) {
+    if (err instanceof StorageQuotaError) {
+      res.status(409).json({ error: err.message, code: err.code, used_bytes: err.usedBytes, limit_bytes: err.limitBytes });
+      return;
+    }
     logger.error({ err: err }, "Storage upload error:");
     res.status(500).json({ error: "Failed to upload file" });
   }
@@ -185,6 +215,22 @@ export async function deleteFile(req: ExpressRequest, res: ExpressResponse): Pro
   const access = await getStorageAssetAccess(userId, key);
   if (!access.canDelete) {
     res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  // PostgreSQL modes never delete objects in a request: a tracked object is only marked (H3) and background cleanup
+  // removes it after the grace; an untracked legacy object is left for the same cleanup (CLD-010 S0).
+  if (!isDesktopMode()) {
+    const outcome = await requestObjectDeletion(userId, key);
+    if (outcome === "in_use") {
+      res.status(409).json({ error: "This file is still used by a document.", code: "STORAGE_OBJECT_IN_USE" });
+      return;
+    }
+    if (outcome === "not_found") {
+      res.status(404).json({ error: "File not found" });
+      return;
+    }
+    res.json({ success: true });
     return;
   }
 

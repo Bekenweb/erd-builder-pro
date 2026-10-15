@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   note: { findMany: vi.fn() },
   drawing: { findMany: vi.fn() },
+  trackedObjectAccess: vi.fn(async (): Promise<any> => ({ tracked: false })),
 }));
+
+vi.mock("./storage-usage.js", () => ({ trackedObjectAccess: mocks.trackedObjectAccess }));
 
 vi.mock("./prisma.js", () => ({
   prisma: { note: mocks.note, drawing: mocks.drawing },
@@ -17,6 +20,7 @@ import {
   replacePrivateStorageUrlsInDrawingData,
   replacePrivateStorageUrls,
   requiresPrivateStorage,
+  detectUploadImageType,
 } from "./storage-access.js";
 
 describe("storage asset access", () => {
@@ -98,5 +102,32 @@ describe("storage asset access", () => {
       canRead: true,
       canDelete: false,
     });
+  });
+});
+
+describe("detectUploadImageType (CLD-010 G2)", () => {
+  it("accepts JPEG, PNG, WebP and SVG by their bytes", () => {
+    expect(detectUploadImageType(Buffer.from([0xff, 0xd8, 0xff, 0xe0]))).toEqual({ mime: "image/jpeg", ext: "jpg" });
+    expect(detectUploadImageType(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]))).toEqual({ mime: "image/png", ext: "png" });
+    expect(detectUploadImageType(Buffer.from("RIFF\0\0\0\0WEBPVP8 ", "latin1"))).toEqual({ mime: "image/webp", ext: "webp" });
+    expect(detectUploadImageType(Buffer.from('﻿ <?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg"></svg>'))).toEqual({ mime: "image/svg+xml", ext: "svg" });
+  });
+
+  it("rejects GIF, PDF and content that only claims an image type", () => {
+    expect(detectUploadImageType(Buffer.from("GIF89a", "latin1"))).toBeNull();
+    expect(detectUploadImageType(Buffer.from("%PDF-1.7", "latin1"))).toBeNull();
+    expect(detectUploadImageType(Buffer.from("synthetic fixture"))).toBeNull();
+    expect(detectUploadImageType(Buffer.from("<html><body>svg</body></html>"))).toBeNull();
+  });
+});
+
+describe("tracked object access (CLD-010 H8)", () => {
+  it("uses the owner scope and ignores document references for tracked objects", async () => {
+    mocks.note.findMany.mockClear();
+    mocks.trackedObjectAccess.mockResolvedValueOnce({ tracked: true, canRead: false, canManage: false });
+    mocks.note.findMany.mockResolvedValue([{ userId: "user-1" }]);
+
+    await expect(getStorageAssetAccess("user-1", "erd-builder-pro/team/org-a/notes/a.png")).resolves.toEqual({ canRead: false, canDelete: false });
+    expect(mocks.note.findMany).not.toHaveBeenCalled();
   });
 });

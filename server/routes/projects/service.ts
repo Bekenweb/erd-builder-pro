@@ -7,6 +7,7 @@ import { getStorageClientForUser } from "../../lib/storage.js";
 import { isDesktopMode } from "../../lib/config.js";
 import { currentTeamScope, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
 import { projectRolesFor } from "../../lib/project-access.js";
+import { deleteEntityRevisions } from "../../lib/entity-history.js";
 
 // ── List ──
 
@@ -256,15 +257,15 @@ export async function permanentDeleteProject(projectId: number, userId: string) 
     await prisma?.diagram.deleteMany({ where: { id: { in: diagramIds } } });
   }
 
-  // Clean up storage images embedded in notes
+  // Desktop and CLI only; PostgreSQL modes leave objects to background cleanup (CLD-010 S0).
   const notes = await prisma?.note.findMany({
     where: { projectId },
-    select: { content: true },
+    select: { id: true, content: true },
   });
   const userStorage = await getStorageClientForUser(userId, prisma);
   const cleanupClient = userStorage?.client ?? s3Client;
   const cleanupBucket = userStorage?.bucketName ?? R2_BUCKET_NAME;
-  if (notes && notes.length > 0 && cleanupClient && cleanupBucket) {
+  if (isDesktopMode() && notes && notes.length > 0 && cleanupClient && cleanupBucket) {
     for (const note of notes) {
       if (note.content) {
         const regex = /<img[^>]+src="([^">]+)"/g;
@@ -284,10 +285,20 @@ export async function permanentDeleteProject(projectId: number, userId: string) 
     }
   }
 
+  const [drawingIds, flowchartIds] = await Promise.all([
+    prisma?.drawing.findMany({ where: { projectId }, select: { id: true } }),
+    prisma?.flowchart.findMany({ where: { projectId }, select: { id: true } }),
+  ]);
   await prisma?.note.deleteMany({ where: { projectId } });
   await prisma?.drawing.deleteMany({ where: { projectId } });
   await prisma?.flowchart.deleteMany({ where: { projectId } });
   await prisma?.project.deleteMany({ where: { id: projectId } });
+  await Promise.all([
+    deleteEntityRevisions("diagrams", diagramIds),
+    deleteEntityRevisions("notes", (notes ?? []).map(note => note.id)),
+    deleteEntityRevisions("drawings", (drawingIds ?? []).map(drawing => drawing.id)),
+    deleteEntityRevisions("flowcharts", (flowchartIds ?? []).map(flowchart => flowchart.id)),
+  ]);
 
   return { success: true };
 }

@@ -33,6 +33,7 @@ const DrawingEditorRoute = lazy(() => import('./routes/DrawingEditorRoute').then
 const FlowchartEditorRoute = lazy(() => import('./routes/FlowchartEditorRoute').then(module => ({ default: module.FlowchartEditorRoute })));
 const TeamManagementRoute = lazy(() => import('./routes/TeamManagementRoute').then(module => ({ default: module.TeamManagementRoute })));
 const TeamInventoryRoute = lazy(() => import('./routes/TeamInventoryRoute').then(module => ({ default: module.TeamInventoryRoute })));
+const LibraryRoute = lazy(() => import('./routes/LibraryRoute').then(module => ({ default: module.LibraryRoute })));
 const UserManagementRoute = lazy(() => import('./routes/UserManagementRoute').then(module => ({ default: module.UserManagementRoute })));
 const AdminRoute = lazy(() => import('./routes/AdminRoute').then(module => ({ default: module.AdminRoute })));
 
@@ -164,6 +165,7 @@ function AppContent() {
 
           {/* Admin pages */}
           <Route path="trash" element={lazyRoute(<AdminRoute />)} />
+          <Route path="library" element={lazyRoute(<LibraryRoute />)} />
           <Route path="teams/:id" element={lazyRoute(<TeamManagementRoute />)} />
           <Route path="team-workspaces" element={lazyRoute(<TeamInventoryRoute />)} />
           <Route path="users" element={lazyRoute(<UserManagementRoute />)} />

@@ -1,6 +1,19 @@
 import { prisma } from "./prisma.js";
+import { trackedObjectAccess } from "./storage-usage.js";
 
 const STORAGE_KEY_PREFIX = "erd-builder-pro/";
+
+export type UploadImageType = { mime: string; ext: string };
+
+/** Detects an allowed upload type from its bytes, never from the client-declared MIME type (CLD-010 G2). */
+export function detectUploadImageType(buffer: Buffer): UploadImageType | null {
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return { mime: "image/jpeg", ext: "jpg" };
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return { mime: "image/png", ext: "png" };
+  if (buffer.length >= 12 && buffer.toString("latin1", 0, 4) === "RIFF" && buffer.toString("latin1", 8, 12) === "WEBP") return { mime: "image/webp", ext: "webp" };
+  const head = buffer.subarray(0, 4096).toString("utf8").replace(/^\uFEFF/, "").trimStart();
+  if (head.startsWith("<") && /<svg[\s>]/i.test(head)) return { mime: "image/svg+xml", ext: "svg" };
+  return null;
+}
 
 export function requiresPrivateStorage(feature: unknown): boolean {
   const normalized = typeof feature === "string" ? feature.trim().toLowerCase() : "";
@@ -120,6 +133,10 @@ export async function getStorageAssetAccess(userId: string, rawKey: unknown): Pr
 }> {
   const key = normalizeStorageKey(rawKey);
   if (!prisma || !key) return { canRead: false, canDelete: false };
+
+  // Tracked objects are authorized by their owner scope, never by which document mentions the key (CLD-010 H8).
+  const tracked = await trackedObjectAccess(userId, key);
+  if (tracked.tracked) return { canRead: tracked.canRead, canDelete: tracked.canManage };
 
   const scope = accessibleFileScope(userId);
   const [notes, drawings] = await Promise.all([

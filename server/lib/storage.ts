@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { logger } from "./logger.js";
 import type { Response } from "express";
@@ -111,6 +111,17 @@ export async function deleteFromS3(
   }));
 }
 
+/** True when the object exists; settles uploads whose PutObject outcome is unknown (CLD-010). */
+export async function objectExists(s3: S3Client, config: StorageConfig, key: string): Promise<boolean> {
+  try {
+    await s3.send(new HeadObjectCommand({ Bucket: config.bucketName, Key: key }));
+    return true;
+  } catch (err: any) {
+    if (err?.$metadata?.httpStatusCode === 404 || err?.name === "NotFound") return false;
+    throw err;
+  }
+}
+
 /**
  * Generate a pre-signed URL for reading a private object from S3/R2.
  * The URL is time-limited — the caller must refresh before expiry.
@@ -152,6 +163,10 @@ export async function serveFromS3(
   // Forward Content-Type from S3, or infer from key extension
   const contentType = response.ContentType || guessMimeType(key);
   res.setHeader("Content-Type", contentType);
+
+  // Uploaded SVG may carry script: never let it run when opened directly (CLD-010 Q8).
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox");
 
   // Allow cross-origin loading (page may be on different port)
   res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");

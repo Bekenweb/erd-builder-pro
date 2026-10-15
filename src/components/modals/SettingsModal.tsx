@@ -12,6 +12,7 @@ import {
   Upload,
   Download,
   HardDrive,
+  Gauge,
   Keyboard,
   ServerCog,
   KeyRound,
@@ -58,6 +59,7 @@ import { useAIProviders } from '@/hooks/useAIProviders';
 import { useAIModels } from '@/hooks/useAIModels';
 import { useAIPrompts } from '@/hooks/useAIPrompts';
 import { APISettingsTab } from '@/components/ai/APISettingsTab';
+import { UsageTab } from '@/components/settings/UsageTab';
 import { ModelCatalogTab } from '@/components/ai/ModelCatalogTab';
 import { DefaultPromptsTab } from '@/components/ai/DefaultPromptsTab';
 import { AIRulesTab } from '@/components/ai/AIRulesTab';
@@ -175,6 +177,7 @@ export function SettingsModal() {
           ...(!isSso ? [{ id: 'account', label: 'Account', icon: <User className="size-4" /> }] : []),
           { id: 'appearance', label: 'Appearance', icon: <Palette className="size-4" /> },
           ...(isDesktopApp && !isSso ? [{ id: 'storage', label: 'Storage', icon: <HardDrive className="size-4" /> }] : []),
+          ...(isSso ? [{ id: 'usage', label: 'Usage', icon: <Gauge className="size-4" /> }] : []),
         ]
       },
       {
@@ -439,6 +442,10 @@ export function SettingsModal() {
 
               {settingsTab === 'storage' && (
                 <StorageConfigTab />
+              )}
+
+              {isSso && settingsTab === 'usage' && (
+                <UsageTab onClose={() => setIsSettingsOpen(false)} />
               )}
             </div>
           </main>

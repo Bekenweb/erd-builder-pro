@@ -3,6 +3,7 @@ import { applySchemaMigrations, backfillUids } from "./lib/startup-migration.js"
 import { initializeDefaults } from "./routes/ai-settings/service.js";
 import { startCloudAiConfigRefresh } from "./lib/cloud-ai.js";
 import { startCloudTelemetry } from "./lib/cloud-telemetry.js";
+import { startStorageMaintenance } from "./lib/storage-maintenance.js";
 import { attachCloudLiveSync } from "./lib/cloud-live-sync.js";
 import { logger } from "./lib/logger.js";
 
@@ -14,6 +15,7 @@ const setupDev = async () => {
   await initializeDefaults();
   startCloudAiConfigRefresh();
   startCloudTelemetry();
+  startStorageMaintenance();
   backfillUids().catch((err) => logger.error({ err }, "Failed to backfill UIDs"));
 
   try {

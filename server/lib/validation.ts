@@ -75,7 +75,7 @@ export const createFlowchartSchema = z.object({
 });
 
 export const uploadSchema = z.object({
-  feature: z.string().max(50).optional(),
+  feature: z.enum(["notes", "drawings"]),
 });
 
 export const deleteUploadSchema = z.object({

@@ -23,7 +23,8 @@ export function getApiBaseUrl(): string {
 
 export const AUTH_TOKEN_KEY='***';
 export const ACTIVE_TEAM_KEY = 'erd-active-team-id';
-const TEAM_SCOPED_API = /^\/api\/(?:projects|diagrams|notes|drawings|flowcharts|search|entity-changes|ai\/(?:chat|proxy|rules|settings\/prompts))(?=[/?#]|$)/;
+// Uploads, the Library and usage belong to the active workspace too, so their bytes land in the right scope (CLD-010).
+const TEAM_SCOPED_API = /^\/api\/(?:projects|diagrams|notes|drawings|flowcharts|search|entity-changes|upload|library|cloud\/usage|ai\/(?:chat|proxy|rules|settings\/prompts))(?=[/?#]|$)/;
 
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;

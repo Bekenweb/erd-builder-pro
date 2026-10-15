@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { prisma } from "../../lib/prisma.js";
-import { captureEntityRevisionSafely } from "../../lib/entity-history.js";
+import { captureEntityRevisionSafely, deleteEntityRevisions } from "../../lib/entity-history.js";
 import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
 import { createPersonalFile } from "../../lib/personal-file-quota.js";
 import { commentableFileIdentifierWhere, creatorFileIdentifierWhere, editableFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere, projectScopeWhere } from "../../lib/team-scope.js";
@@ -258,6 +258,7 @@ export function extractR2KeysFromContent(content: string): string[] {
 
 export async function permanentDeleteNote(id: number) {
   await prisma?.note.delete({ where: { id } });
+  await deleteEntityRevisions("notes", [id]);
 }
 
 // ── Public / Share ──

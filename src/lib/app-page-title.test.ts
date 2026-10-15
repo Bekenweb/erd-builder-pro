@@ -14,6 +14,7 @@ describe('getAppPageTitle', () => {
         ['/team-workspaces', 'Team Workspaces | ERD Builder Pro'],
         ['/users', 'User Management | ERD Builder Pro'],
         ['/trash', 'Trash | ERD Builder Pro'],
+        ['/library', 'Library | ERD Builder Pro'],
         ['/team-workspaces/', 'Team Workspaces | ERD Builder Pro'],
     ])('uses the page title for %s even if a file was open', (pathname, expected) => {
         expect(getAppPageTitle({ ...activeDocument, pathname })).toBe(expected);

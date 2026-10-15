@@ -17,6 +17,13 @@ export const handleError = (res: ExpressResponse, _error: any, message: string =
       limit: _error.limit,
     });
   }
+  // CLD-010 Team file and storage quotas share the same stable 409 shape.
+  if (_error?.code === "TEAM_FILE_QUOTA_EXCEEDED" && _error?.status === 409) {
+    return res.status(409).json({ error: _error.message, code: _error.code, feature: _error.feature, limit: _error.limit });
+  }
+  if (_error?.code === "STORAGE_QUOTA_EXCEEDED" && _error?.status === 409) {
+    return res.status(409).json({ error: _error.message, code: _error.code, used_bytes: _error.usedBytes, limit_bytes: _error.limitBytes });
+  }
   return res.status(500).json({ 
     error: message
   });

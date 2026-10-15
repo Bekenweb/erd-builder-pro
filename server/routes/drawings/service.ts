@@ -1,5 +1,5 @@
 import { prisma } from "../../lib/prisma.js";
-import { captureEntityRevisionSafely } from "../../lib/entity-history.js";
+import { captureEntityRevisionSafely, deleteEntityRevisions } from "../../lib/entity-history.js";
 import { isDesktopMode, isLocalPostgres } from "../../lib/config.js";
 import { createPersonalFile } from "../../lib/personal-file-quota.js";
 import { versionedWhere } from "../../lib/versioned-write.js";
@@ -206,6 +206,7 @@ export async function permanentDeleteDrawing(drawingId: number) {
   await prisma?.drawing.deleteMany({
     where: { id: drawingId },
   });
+  await deleteEntityRevisions("drawings", [drawingId]);
 }
 
 // ── Public / Share ──

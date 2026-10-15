@@ -1,6 +1,6 @@
 import { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import { parseExpectedVersion } from "../../lib/versioned-write.js";
-import { supabase, s3Client, R2_BUCKET_NAME } from "../../lib/config.js";
+import { supabase, s3Client, R2_BUCKET_NAME, isDesktopMode } from "../../lib/config.js";
 import { handleError } from "../../lib/utils.js";
 import { resolveNewFileProjectId, resolveOwnedProjectId } from "../../lib/security.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
@@ -127,11 +127,11 @@ export async function permanentDelete(req: ExpressRequest, res: ExpressResponse)
     const drawing = await drawingsService.getDrawingForPermanentDelete(req.params.uid, userId);
     if (!drawing) { res.status(404).json({ error: "Drawing not found" }); return; }
 
-    // Clean up storage images embedded in Excalidraw data
+    // Desktop and CLI only; PostgreSQL modes leave objects to background cleanup (CLD-010 S0).
     const userStorage = await getStorageClientForUser(userId, prisma);
     const cleanupClient = userStorage?.client ?? s3Client;
     const cleanupBucket = userStorage?.bucketName ?? R2_BUCKET_NAME;
-    if (drawing.data && cleanupClient && cleanupBucket) {
+    if (isDesktopMode() && drawing.data && cleanupClient && cleanupBucket) {
       const keys = drawingsService.extractR2KeysFromDrawingData(drawing.data);
       if (keys.length > 0) {
         logger.info(`Deleting ${keys.length} images from storage for drawing ${req.params.uid}`);

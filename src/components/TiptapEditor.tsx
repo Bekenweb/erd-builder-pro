@@ -21,7 +21,7 @@ import Underline from '@tiptap/extension-underline';
 import DragHandle from '@tiptap/extension-drag-handle';
 import Mention from '@tiptap/extension-mention';
 
-import { compressImage } from '../lib/image-compression';
+import { compressImage, IMAGE_INPUT_ACCEPT } from '../lib/image-compression';
 import { SlashMenu } from './SlashMenu';
 import { AnimatePresence } from 'framer-motion';
 import { marked } from 'marked';
@@ -224,7 +224,7 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
     const file = event.target.files?.[0];
     if (file) {
       try {
-        const compressedFile = await compressImage(file, { maxWidth: 1280, quality: 0.8 });
+        const compressedFile = await compressImage(file);
 
         const formData = new FormData();
         formData.append('image', compressedFile);
@@ -806,7 +806,7 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
       <input
         type="file"
         id="tiptap-image-upload"
-        accept="image/*"
+        accept={IMAGE_INPUT_ACCEPT}
         ref={fileInputRef}
         onChange={handleImageUpload}
         className="hidden"

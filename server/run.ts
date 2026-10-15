@@ -10,6 +10,7 @@ import { logger } from "./lib/logger.js";
 import { isDesktopMode, isSsoAuthMode, useLocalAuth } from "./lib/config.js";
 import { startCloudAiConfigRefresh, startCloudAiUsageRetention } from "./lib/cloud-ai.js";
 import { startCloudTelemetry } from "./lib/cloud-telemetry.js";
+import { startStorageMaintenance } from "./lib/storage-maintenance.js";
 import { startSelfHostCapacityReportScheduler } from "./lib/self-host-capacity-report.js";
 import { setDbReady, setDbError } from "./lib/db-state.js";
 import { attachCloudLiveSync } from "./lib/cloud-live-sync.js";
@@ -277,6 +278,7 @@ async function startup(): Promise<void> {
     startCloudAiConfigRefresh();
     startCloudAiUsageRetention();
     startCloudTelemetry();
+    startStorageMaintenance();
 
     // Fire-and-forget: the rest of background init runs after /api/me works.
     // These can be async — uid backfill, migrations, etc.
