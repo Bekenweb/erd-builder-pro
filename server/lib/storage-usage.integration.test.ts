@@ -209,6 +209,22 @@ describe.skipIf(!enabled)("CLD-010 storage accounting in an isolated PostgreSQL 
     expect(await usage.scopeUsage({ type: "team", id: teamId })).toMatchObject({ assetBytes: 300 });
   });
 
+  it("lists the active Team Trash and empties only the caller's items in that scope", async () => {
+    const { fetchTrashItems, emptyTrash } = await import("../routes/common/service.js");
+    const mine = await fixture.db.note.create({ data: { uid: id(), title: "mine", projectId: project.id, userId: users.owner, isDeleted: true, deletedAt: new Date() } });
+    const colleague = await fixture.db.note.create({ data: { uid: id(), title: "colleague", projectId: project.id, userId: users.member, isDeleted: true, deletedAt: new Date() } });
+    const personal = await fixture.db.note.create({ data: { uid: id(), title: "personal", userId: users.owner, isDeleted: true, deletedAt: new Date() } });
+    const otherProject = await fixture.db.project.create({ data: { name: "Other", teamId: otherTeamId, userId: users.owner } });
+    const other = await fixture.db.note.create({ data: { uid: id(), title: "other", projectId: otherProject.id, userId: users.owner, isDeleted: true, deletedAt: new Date() } });
+
+    const teamTrash = await inTeam(() => fetchTrashItems(users.owner));
+    expect(teamTrash.notes.map((note: any) => note.id).sort()).toEqual([mine.id, colleague.id].sort());
+    const personalTrash = await runWithTeamScope({ mode: "personal", teamId: null }, () => fetchTrashItems(users.owner));
+    expect(personalTrash.notes.map((note: any) => note.id)).toEqual([personal.id]);
+    expect(await inTeam(() => emptyTrash(users.owner))).toBe(1);
+    expect((await fixture.db.note.findMany()).map((note: any) => note.id).sort()).toEqual([colleague.id, personal.id, other.id].sort());
+  });
+
   it("purges Trash older than 30 days with its revisions, but not recent items or inactive Teams", async () => {
     const old = new Date(Date.now() - 31 * DAY);
     const expired = await fixture.db.note.create({ data: { uid: id(), title: "old", projectId: project.id, userId: users.owner, isDeleted: true, deletedAt: old } });
