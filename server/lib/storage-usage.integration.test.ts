@@ -132,6 +132,20 @@ describe.skipIf(!enabled)("CLD-010 storage accounting in an isolated PostgreSQL 
     await expect(create()).rejects.toMatchObject({ code: "TEAM_FILE_QUOTA_EXCEEDED" });
   });
 
+  it("caps images per document by count and bytes, per document (G4)", async () => {
+    await fixture.db.team.update({ where: { id: teamId }, data: { cloudEntitlement: entitlement({}) } });
+    const inDoc = (n: number, bytes: number, doc = "note-a") =>
+      usage.reserveUpload({ scope: teamScope, key: `erd-builder-pro/team/x/notes/${doc}-${n}.png`, userId: users.owner, feature: "notes", mimeType: "image/png", bytes, documentUid: doc });
+    for (let n = 0; n < usage.DOCUMENT_IMAGE_LIMIT; n++) await inDoc(n, 10);
+    await expect(inDoc(99, 10)).rejects.toMatchObject({ code: "DOCUMENT_IMAGE_BUDGET_EXCEEDED" });
+    await inDoc(0, 10, "note-b");
+    await expect(inDoc(1, usage.DOCUMENT_IMAGE_BYTES, "note-b")).rejects.toMatchObject({ code: "DOCUMENT_IMAGE_BUDGET_EXCEEDED" });
+
+    // An image the sweep found unused no longer counts toward its document.
+    await fixture.db.storageObject.update({ where: { key: "erd-builder-pro/team/x/notes/note-a-0.png" }, data: { unreferencedSince: new Date() } });
+    await inDoc(100, 10);
+  });
+
   it("authorizes reads by the owner scope, not by which document mentions the key", async () => {
     const teamKey = "erd-builder-pro/team/x/notes/t.png";
     const userKey = "erd-builder-pro/user/u/notes/u.png";

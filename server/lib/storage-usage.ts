@@ -30,6 +30,20 @@ export class StorageQuotaError extends Error {
   }
 }
 
+/** Per-document image budget (Q9, placeholders to calibrate in Stage 0): caps page weight and client memory. */
+export const DOCUMENT_IMAGE_LIMIT = Number(process.env.DOCUMENT_IMAGE_LIMIT) || 15;
+export const DOCUMENT_IMAGE_BYTES = Number(process.env.DOCUMENT_IMAGE_BYTES) || 2 * 1024 * 1024;
+
+export class DocumentImageBudgetError extends Error {
+  readonly code = "DOCUMENT_IMAGE_BUDGET_EXCEEDED";
+  readonly status = 409;
+
+  constructor(readonly limitImages: number, readonly limitBytes: number) {
+    super(`A document can hold up to ${limitImages} images and ${Math.round(limitBytes / 1024 / 1024)} MB of images. Remove an image or use a smaller one.`);
+    this.name = "DocumentImageBudgetError";
+  }
+}
+
 export function storageTrackingEnabled(): boolean {
   return Boolean(prisma) && isLocalPostgres();
 }
@@ -99,11 +113,23 @@ export async function reserveUpload(input: {
   feature: string;
   mimeType: string;
   bytes: number;
+  documentUid?: string | null;
 }): Promise<void> {
   await (prisma as any).$transaction(async (db: any) => {
     const limit = await storageLimitBytes(input.scope, db);
+    if (limit !== null || input.documentUid) await lockScope(db, input.scope);
+    if (input.documentUid) {
+      // Images still in use by this document; ones removed from it stop counting once the sweep marks them.
+      const inDocument = await db.storageObject.aggregate({
+        where: { documentUid: input.documentUid, scopeType: input.scope.type, scopeId: input.scope.id, status: { in: ["pending", "committed"] }, unreferencedSince: null },
+        _sum: { bytes: true },
+        _count: true,
+      });
+      if (inDocument._count + 1 > DOCUMENT_IMAGE_LIMIT || Number(inDocument._sum.bytes ?? 0) + input.bytes > DOCUMENT_IMAGE_BYTES) {
+        throw new DocumentImageBudgetError(DOCUMENT_IMAGE_LIMIT, DOCUMENT_IMAGE_BYTES);
+      }
+    }
     if (limit !== null) {
-      await lockScope(db, input.scope);
       const usage = await scopeUsage(input.scope, db);
       if (usage.usedBytes + input.bytes > limit || usage.heldBytes + input.bytes > limit * HELD_BYTES_MULTIPLIER) {
         throw new StorageQuotaError(usage.usedBytes, limit);
@@ -116,6 +142,7 @@ export async function reserveUpload(input: {
         scopeId: input.scope.id,
         uploadedBy: input.userId,
         feature: input.feature,
+        documentUid: input.documentUid ?? null,
         mimeType: input.mimeType,
         bytes: input.bytes,
         status: "pending",

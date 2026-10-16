@@ -130,9 +130,11 @@ interface TiptapEditorProps {
   onRequestComment?: (request: { id: string; beforeContent: string; content: string }) => Promise<boolean>;
   /** The Note as a comment target; with onRequestComment it turns on Notion-style block comments. */
   commentFile?: CommentFileRef | null;
+  /** The Note being edited, so its uploads count against its image budget (CLD-010 G4). */
+  documentUid?: string | null;
 }
 
-export function TiptapEditor({ content, onChange, isReadOnly = false, disableAISelection = false, targetProjectId, noteTitle, compactLayout = false, onRequestCompanion, onRequestComment, commentFile = null }: TiptapEditorProps) {
+export function TiptapEditor({ content, onChange, isReadOnly = false, disableAISelection = false, targetProjectId, noteTitle, compactLayout = false, onRequestCompanion, onRequestComment, commentFile = null, documentUid = null }: TiptapEditorProps) {
   const { setSelectionText } = useAIAction();
   const {
     diagrams, flowcharts,
@@ -229,6 +231,7 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
         const formData = new FormData();
         formData.append('image', compressedFile);
         formData.append('feature', 'notes');
+        if (documentUid) formData.append('document', documentUid);
 
         const response = await apiFetch('/api/upload', {
           method: 'POST',
@@ -329,6 +332,8 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
     TiptapImage.configure({
       inline: true,
       allowBase64: true,
+      // Images below the fold load only when scrolled near, keeping page weight down (CLD-010 G5).
+      HTMLAttributes: { loading: 'lazy', decoding: 'async' },
     }),
     LucideIconExtension,
     IconSpaceReset,

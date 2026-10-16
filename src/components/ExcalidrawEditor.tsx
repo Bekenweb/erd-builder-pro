@@ -169,6 +169,7 @@ export default function ExcalidrawEditor({ drawing, onSave, onChange, onDelete, 
         const formData = new FormData();
         formData.append('image', compressedFile);
         formData.append('feature', 'drawings');
+        if (drawing?.uid) formData.append('document', drawing.uid);
 
         const uploadRes = await apiFetch('/api/upload', {
           method: 'POST',

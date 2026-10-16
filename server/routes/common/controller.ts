@@ -6,7 +6,7 @@ import { isDesktopMode } from "../../lib/config.js";
 import { emptyTrash, fetchTrashItems } from "./service.js";
 import { isSsoAuthMode } from "../../lib/config.js";
 import { StorageConfig, buildS3Client, uploadToS3, deleteFromS3, getEnvStorageConfig, generateSignedUrl, serveFromS3, objectExists } from "../../lib/storage.js";
-import { StorageQuotaError, requestObjectDeletion, reserveUpload, resolveStorageScope, settleUpload } from "../../lib/storage-usage.js";
+import { DocumentImageBudgetError, StorageQuotaError, requestObjectDeletion, reserveUpload, resolveStorageScope, settleUpload } from "../../lib/storage-usage.js";
 import { detectUploadImageType, getStorageAssetAccess, normalizeStorageKey, requiresPrivateStorage } from "../../lib/storage-access.js";
 
 /**
@@ -153,7 +153,8 @@ export async function uploadFile(req: any, res: ExpressResponse): Promise<void> 
     const folder = scope ? `${scope.prefix}/${feature}` : feature;
     const key = `erd-builder-pro/${folder}/${fileName}`;
     if (scope) {
-      await reserveUpload({ scope, key, userId, feature, mimeType: fileType.mime, bytes: file.size });
+      // shortcut: uploads without a document id (Word import) skip the per-document budget; storage quota still applies.
+      await reserveUpload({ scope, key, userId, feature, mimeType: fileType.mime, bytes: file.size, documentUid: req.body.document ?? null });
     }
 
     // Build the URL based on storage config:
@@ -190,6 +191,10 @@ export async function uploadFile(req: any, res: ExpressResponse): Promise<void> 
       proxyUrl: config.publicUrl ? null : `${originHost}/api/serve/${key}`,
     });
   } catch (err: any) {
+    if (err instanceof DocumentImageBudgetError) {
+      res.status(409).json({ error: err.message, code: err.code, limit_images: err.limitImages, limit_bytes: err.limitBytes });
+      return;
+    }
     if (err instanceof StorageQuotaError) {
       res.status(409).json({ error: err.message, code: err.code, used_bytes: err.usedBytes, limit_bytes: err.limitBytes });
       return;

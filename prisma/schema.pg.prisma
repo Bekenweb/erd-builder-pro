@@ -244,6 +244,8 @@ model StorageObject {
   scopeId           String    @map("scope_id")
   uploadedBy        String?   @map("uploaded_by")
   feature           String
+  /** The Note or Drawing an image was uploaded into; groups its per-document budget (G4). */
+  documentUid       String?   @map("document_uid")
   mimeType          String    @map("mime_type")
   bytes             Int
   status            String    @default("pending")
@@ -254,6 +256,7 @@ model StorageObject {
 
   @@index([scopeType, scopeId, status], map: "idx_storage_objects_scope")
   @@index([status, unreferencedSince], map: "idx_storage_objects_sweep")
+  @@index([documentUid], map: "idx_storage_objects_document")
   @@map("storage_objects")
 }
 
