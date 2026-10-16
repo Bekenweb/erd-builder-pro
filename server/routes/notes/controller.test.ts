@@ -7,12 +7,18 @@ const mocks = vi.hoisted(() => ({
   privateStorageKeysFromMarkup: vi.fn(),
   replacePrivateStorageUrls: vi.fn(),
   getUser: vi.fn(),
+  isDesktopMode: vi.fn(() => false),
+  getNoteForPermanentDelete: vi.fn(),
+  permanentDeleteNote: vi.fn(),
+  extractR2KeysFromContent: vi.fn(() => ["erd-builder-pro/notes/a.png"]),
+  getStorageClientForUser: vi.fn(),
 }));
 
 vi.mock("../../lib/config.js", () => ({
   supabase: { auth: { getUser: mocks.getUser } },
   s3Client: null,
   R2_BUCKET_NAME: "test-bucket",
+  isDesktopMode: mocks.isDesktopMode,
 }));
 vi.mock("../../lib/utils.js", () => ({ handleError: vi.fn() }));
 vi.mock("../../lib/security.js", () => ({
@@ -21,9 +27,14 @@ vi.mock("../../lib/security.js", () => ({
 }));
 vi.mock("../../lib/logger.js", () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 vi.mock("../../lib/prisma.js", () => ({ prisma: {} }));
-vi.mock("./service.js", () => ({ getPublicNote: mocks.getPublicNote }));
+vi.mock("./service.js", () => ({
+  getPublicNote: mocks.getPublicNote,
+  getNoteForPermanentDelete: mocks.getNoteForPermanentDelete,
+  permanentDeleteNote: mocks.permanentDeleteNote,
+  extractR2KeysFromContent: mocks.extractR2KeysFromContent,
+}));
 vi.mock("../../lib/storage.js", () => ({
-  getStorageClientForUser: vi.fn(),
+  getStorageClientForUser: mocks.getStorageClientForUser,
   generateSignedUrl: mocks.generateSignedUrl,
 }));
 vi.mock("../../lib/storage-access.js", () => ({
@@ -32,7 +43,7 @@ vi.mock("../../lib/storage-access.js", () => ({
 }));
 vi.mock("../common/controller.js", () => ({ resolveStorage: mocks.resolveStorage }));
 
-import { getPublic } from "./controller.js";
+import { getPublic, permanentDelete } from "./controller.js";
 
 function response() {
   return { json: vi.fn(), setHeader: vi.fn(), status: vi.fn().mockReturnThis() } as any;
@@ -77,5 +88,32 @@ describe("public Note assets", () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       content: '<img src="https://signed.test/a.png">',
     }));
+  });
+});
+
+describe("permanent Note delete (CLD-010 S0)", () => {
+  const send = vi.fn().mockResolvedValue({});
+  const request = { params: { uid: "note-1" }, user: { id: "owner-1" } } as any;
+
+  beforeEach(() => {
+    mocks.getNoteForPermanentDelete.mockResolvedValue({ id: 7, content: '<img src="/api/serve/erd-builder-pro/notes/a.png">' });
+    mocks.getStorageClientForUser.mockResolvedValue({ client: { send }, bucketName: "bucket" });
+  });
+
+  it("deletes only the database row in PostgreSQL modes", async () => {
+    const res = response();
+    await permanentDelete(request, res);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(mocks.permanentDeleteNote).toHaveBeenCalledWith(7);
+    expect(res.json).toHaveBeenCalledWith({ success: true });
+  });
+
+  it("still deletes embedded images on Desktop and CLI", async () => {
+    mocks.isDesktopMode.mockReturnValueOnce(true);
+    await permanentDelete(request, response());
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(mocks.permanentDeleteNote).toHaveBeenCalledWith(7);
   });
 });

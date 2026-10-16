@@ -1,6 +1,6 @@
 import { Request as ExpressRequest, Response as ExpressResponse } from "express";
 import { parseExpectedVersion } from "../../lib/versioned-write.js";
-import { supabase, s3Client, R2_BUCKET_NAME } from "../../lib/config.js";
+import { supabase, s3Client, R2_BUCKET_NAME, isDesktopMode } from "../../lib/config.js";
 import { handleError } from "../../lib/utils.js";
 import { resolveNewFileProjectId, resolveOwnedProjectId } from "../../lib/security.js";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
@@ -138,12 +138,12 @@ export async function permanentDelete(req: ExpressRequest, res: ExpressResponse)
     const note = await notesService.getNoteForPermanentDelete(req.params.uid, userId);
     if (!note) { res.status(404).json({ error: "Note not found" }); return; }
 
-    // Clean up storage images embedded in note content
-    // Resolve client from DB config, fall back to env-var s3Client
+    // Desktop and CLI own their bucket and share nothing, so they still delete images here;
+    // PostgreSQL modes leave objects to background cleanup because other documents may still use them (CLD-010 S0).
     const userStorage = await getStorageClientForUser(userId, prisma);
     const cleanupClient = userStorage?.client ?? s3Client;
     const cleanupBucket = userStorage?.bucketName ?? R2_BUCKET_NAME;
-    if (note.content && cleanupClient && cleanupBucket) {
+    if (isDesktopMode() && note.content && cleanupClient && cleanupBucket) {
       const keys = notesService.extractR2KeysFromContent(note.content);
       await Promise.all(keys.map(key =>
         cleanupClient!.send(new DeleteObjectCommand({ Bucket: cleanupBucket as string, Key: key }))

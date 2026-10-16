@@ -156,6 +156,9 @@ export function useDrawings(isGuest: boolean = false) {
         toast.success('Drawing created successfully');
         return newDrawing;
       }
+      // Quota refusals (file or storage limits) carry a message the user can act on (CLD-010).
+      const error = await res.json().catch(() => null);
+      toast.error(error?.error || 'Failed to create drawing');
     } catch (err) {}
     return null;
   };

@@ -163,12 +163,13 @@ export default function ExcalidrawEditor({ drawing, onSave, onChange, onDelete, 
         const file = new File([blob], `excalidraw_${id}`, { type: fileData.mimeType });
 
         // Compress
-        const compressedFile = await compressImage(file, { maxWidth: 1280, quality: 0.8 });
+        const compressedFile = await compressImage(file);
 
         // Upload to R2
         const formData = new FormData();
         formData.append('image', compressedFile);
         formData.append('feature', 'drawings');
+        if (drawing?.uid) formData.append('document', drawing.uid);
 
         const uploadRes = await apiFetch('/api/upload', {
           method: 'POST',
@@ -187,7 +188,7 @@ export default function ExcalidrawEditor({ drawing, onSave, onChange, onDelete, 
           updatedFiles.push({
             id,
             dataURL: cleanUrl,
-            mimeType: fileData.mimeType,
+            mimeType: (compressedFile.type || fileData.mimeType) as typeof fileData.mimeType,
             created: fileData.created,
             lastRetrieved: Date.now(),
           });

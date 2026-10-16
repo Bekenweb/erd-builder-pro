@@ -172,6 +172,9 @@ export function useNotes(isGuest: boolean = false) {
         toast.success('Note created successfully');
         return newNote;
       }
+      // Quota refusals (file or storage limits) carry a message the user can act on (CLD-010).
+      const error = await res.json().catch(() => null);
+      toast.error(error?.error || 'Failed to create note');
     } catch (err) {
       console.error('Error creating note:', err);
     }

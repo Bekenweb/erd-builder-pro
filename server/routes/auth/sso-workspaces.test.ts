@@ -60,7 +60,7 @@ describe("Cloud SSO workspace grants", () => {
           product_type: "cloud",
           revision: "b".repeat(64),
           capabilities: {},
-          limits: { max_members: null, max_personal_files_per_feature: 3, ai_credits: 0 },
+          limits: { max_members: null, max_personal_files_per_feature: 3, max_storage_bytes: null, max_team_files_per_feature: null, ai_credits: 0 },
           period_start: null,
           period_end: null,
         }) },
@@ -75,7 +75,7 @@ describe("Cloud SSO workspace grants", () => {
       product_type: "cloud",
       revision: "a".repeat(64),
       capabilities: { erd_builder: true, ai_assistant: false },
-      limits: { max_members: 5, max_personal_files_per_feature: null, ai_credits: 0 },
+      limits: { max_members: 5, max_personal_files_per_feature: null, max_storage_bytes: null, max_team_files_per_feature: null, ai_credits: 0 },
       period_start: null,
       period_end: null,
     });

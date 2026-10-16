@@ -39,7 +39,7 @@ describe("authentication rate limits", () => {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const response = fakeResponse(401);
       await limits.localIp(
-        { body: { email: `user-${attempt}@example.com` }, ip: "127.0.0.1" } as any,
+        fakeIpRequest(`user-${attempt}@example.com`),
         response,
         () => {},
       );
@@ -47,7 +47,7 @@ describe("authentication rate limits", () => {
 
     const response = fakeResponse(401);
     await limits.localIp(
-      { body: { email: "different@example.com" }, ip: "127.0.0.1" } as any,
+      fakeIpRequest("different@example.com"),
       response,
       () => {},
     );
@@ -71,6 +71,16 @@ describe("authentication rate limits", () => {
     expect(response.statusCode).toBe(401);
   });
 });
+
+function fakeIpRequest(email: string) {
+  return {
+    body: { email },
+    ip: "127.0.0.1",
+    app: { get: () => false },
+    headers: {},
+    socket: { remoteAddress: "127.0.0.1" },
+  } as any;
+}
 
 function fakeResponse(statusCode: number) {
   const headers = new Map<string, string>();

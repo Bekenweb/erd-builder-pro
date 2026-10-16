@@ -98,7 +98,7 @@ export class NoteImporter {
               const file = new File([imageBuffer], originalFileName, { type: contentType });
 
               // Compress/Standardize the image (like TiptapEditor does)
-              const processedFile = await compressImage(file, { maxWidth: 1280, quality: 0.9 });
+              const processedFile = await compressImage(file);
               
               const formData = new FormData();
               formData.append('image', processedFile);
@@ -188,7 +188,7 @@ export class NoteImporter {
             const fileName = `imported_img_${Date.now()}.${ext}`;
             const file = new File([blob], fileName, { type });
 
-            const processedFile = await compressImage(file, { maxWidth: 1280, quality: 0.9 });
+            const processedFile = await compressImage(file);
             
             const formData = new FormData();
             formData.append("image", processedFile);

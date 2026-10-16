@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./config.js", () => ({ isSsoAuthMode: () => true }));
+vi.mock("./storage-usage.js", () => ({ assertStorageAvailable: async () => undefined }));
 vi.mock("./team-scope.js", () => ({
   currentTeamScope: () => ({ mode: "personal", teamId: null }),
   fileScopeWhere: (userId: string) => ({ userId, OR: [{ projectId: null }, { project: { userId, teamId: null } }] }),

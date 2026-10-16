@@ -8,8 +8,22 @@ import {
   Network,
   RefreshCcw, 
   Trash2 as TrashIcon,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
+import { toast } from 'sonner';
+import { apiFetch } from '@/lib/api';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { 
   Table, 
   TableBody, 
@@ -33,6 +47,7 @@ interface TrashViewProps {
     notes: any[];
     drawings: any[];
     flowcharts: any[];
+    retentionDays?: number;
   };
   restoreProject: (id: number) => Promise<void>;
   restoreDiagram: (id: number) => Promise<void>;
@@ -69,6 +84,26 @@ export function TrashView({
 }: TrashViewProps) {
   const { user, isGuest } = useAuth();
   const canManageTrashItem = (item: any) => isFileCreator(item, user?.id, isGuest);
+  // Cloud purges Trash on a server schedule; the number comes from the server so the promise is never shown early (Q19).
+  const retentionDays = user?.isSso ? trashData.retentionDays || 0 : 0;
+  const ownItems = [trashData.projects, trashData.diagrams, trashData.notes, trashData.drawings, trashData.flowcharts || []]
+    .flat().filter(canManageTrashItem).length;
+  const deletedAt = (item: any) => {
+    const deleted = new Date(item.deleted_at || item.updated_at || item.created_at);
+    const purge = retentionDays > 0 && item.deleted_at ? new Date(deleted.getTime() + retentionDays * 86_400_000) : null;
+    return (
+      <>
+        {deleted.toLocaleString()}
+        {purge && <span className="block text-[11px]">Deleted permanently on {purge.toLocaleDateString()}</span>}
+      </>
+    );
+  };
+  const emptyTrash = async () => {
+    const res = await apiFetch('/api/trash', { method: 'DELETE' });
+    if (!res.ok) { toast.error('Failed to empty Trash'); return; }
+    toast.success('Trash emptied');
+    fetchTrash();
+  };
 
   return (
     <div className="flex-1 flex flex-col min-h-0 border rounded-xl bg-background overflow-hidden relative">
@@ -81,11 +116,43 @@ export function TrashView({
       )}
 
       <div className="p-6 border-b shrink-0">
-        <h2 className="text-2xl font-bold flex items-center gap-2">
-          <Trash size={24} className="text-muted-foreground" />
-          Trash Bin
-        </h2>
-        <p className="text-sm text-muted-foreground">Manage your deleted files and projects. Items can be restored or permanently deleted.</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              <Trash size={24} className="text-muted-foreground" />
+              Trash Bin
+            </h2>
+            <p className="text-sm text-muted-foreground">Manage your deleted files and projects. Items can be restored or permanently deleted.</p>
+          </div>
+          {retentionDays > 0 && ownItems > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger render={<Button variant="destructive" size="sm" />}>
+                <TrashIcon size={14} className="mr-1" /> Empty Trash
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Empty Trash?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {ownItems} item{ownItems === 1 ? '' : 's'} you created will be permanently deleted and can no longer be restored. Items created by others stay.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={emptyTrash}>Delete permanently</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+        </div>
+        {retentionDays > 0 && (
+          <div role="note" className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-200">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+            <p>
+              <span className="font-semibold">Warning: </span>
+              Files in the Trash are permanently deleted after {retentionDays} days and can no longer be restored. Restore a file before then if you still need it.
+            </p>
+          </div>
+        )}
       </div>
       <Tabs defaultValue="projects" className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 overflow-x-auto border-b px-6 py-3 custom-scrollbar">
@@ -129,7 +196,7 @@ export function TrashView({
                           {project.name}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-xs">
-                          {new Date(project.deleted_at || project.updated_at || project.created_at).toLocaleString()}
+                          {deletedAt(project)}
                         </TableCell>
                         <TableCell className="text-right">
                           {canManageTrashItem(project) ? (
@@ -184,7 +251,7 @@ export function TrashView({
                           {file.projects?.name || '-'}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-xs">
-                          {new Date(file.deleted_at || file.updated_at).toLocaleString()}
+                          {deletedAt(file)}
                         </TableCell>
                         <TableCell className="text-right">
                           {canManageTrashItem(file) ? (
@@ -247,7 +314,7 @@ export function TrashView({
                           {note.projects?.name || '-'}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-xs">
-                          {new Date(note.deleted_at || note.updated_at).toLocaleString()}
+                          {deletedAt(note)}
                         </TableCell>
                         <TableCell className="text-right">
                           {canManageTrashItem(note) ? (
@@ -302,7 +369,7 @@ export function TrashView({
                           {drawing.projects?.name || '-'}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-xs">
-                          {new Date(drawing.deleted_at || drawing.updated_at).toLocaleString()}
+                          {deletedAt(drawing)}
                         </TableCell>
                         <TableCell className="text-right">
                           {canManageTrashItem(drawing) ? (
@@ -356,7 +423,7 @@ export function TrashView({
                           {flowchart.projects?.name || '-'}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-xs">
-                          {new Date(flowchart.deleted_at || flowchart.updated_at).toLocaleString()}
+                          {deletedAt(flowchart)}
                         </TableCell>
                         <TableCell className="text-right">
                           {canManageTrashItem(flowchart) ? (

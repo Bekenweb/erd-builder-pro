@@ -79,7 +79,10 @@ describe("Cloud AI access", () => {
     mocks.ssoMode = true;
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
 
   it("rejects an active Team without the AI capability", async () => {
     mocks.findUnique.mockResolvedValue({ status: "active", cloudEntitlement: entitlement({ erd_builder: true }) });
@@ -232,6 +235,7 @@ describe("Cloud AI access", () => {
   });
 
   it("sends only aggregate telemetry in Cloud SSO mode", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://localhost/telemetry_unit_test");
     const response = (payload: unknown, status = 200) => ({
       ok: status >= 200 && status < 300,
       status,
@@ -248,7 +252,7 @@ describe("Cloud AI access", () => {
     mocks.noteCount.mockResolvedValue(3);
     mocks.drawingCount.mockResolvedValue(1);
     mocks.flowchartCount.mockResolvedValue(3);
-    mocks.queryRaw.mockResolvedValue([{
+    mocks.queryRaw.mockResolvedValueOnce([{
       organization_id: "44444444-4444-4444-8444-444444444444",
       period_start: new Date("2026-09-01T00:00:00.000Z"),
       period_end: new Date("2026-10-01T00:00:00.000Z"),
@@ -256,6 +260,10 @@ describe("Cloud AI access", () => {
       requests_succeeded: 3,
       requests_failed: 1,
       source_revision: "revision-7",
+    }]).mockResolvedValueOnce([{
+      organization_id: "44444444-4444-4444-8444-444444444444",
+      document_bytes: "300", revision_bytes: "900", asset_bytes: "700", unused_asset_bytes: "10",
+      diagrams: 1n, notes: 2n, drawings: 0n, flowcharts: 0n,
     }]);
 
     await expect(sendCloudTelemetryHeartbeat()).resolves.toBe(true);
@@ -275,7 +283,19 @@ describe("Cloud AI access", () => {
         source_revision: "revision-7",
       }],
     });
-    expect(fetchMock.mock.calls[1][1].body).not.toContain("document");
+    // Storage is byte totals and counts per organization only: no content, titles, file names or storage keys (CLD-010).
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(body.aggregate.storage_bytes).toBe(1000);
+    expect(body.storage_usage).toEqual([{
+      organization_id: "44444444-4444-4444-8444-444444444444",
+      document_bytes: 300,
+      asset_bytes: 700,
+      unused_asset_bytes: 10,
+      revision_bytes: 900,
+      files: { diagrams: 1, notes: 2, drawings: 0, flowcharts: 0 },
+      reported_at: expect.any(String),
+    }]);
+    expect(fetchMock.mock.calls[1][1].body).not.toMatch(/"(content|title|name|key|data)"|erd-builder-pro\//);
     expect(mocks.queryRaw.mock.calls[0][0]).toContain('teams."sso_organization_id" AS organization_id');
   });
 });

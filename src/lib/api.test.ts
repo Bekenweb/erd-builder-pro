@@ -14,6 +14,28 @@ function useActiveTeam(teamId = "team-1") {
 }
 
 describe("apiFetch Team scope", () => {
+  it.each(["GET", "DELETE"])("scopes %s Trash requests to the active Team", async (method) => {
+    useActiveTeam();
+    const fetchMock = vi.fn().mockResolvedValue(new Response());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/api/trash", { method });
+
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).get("X-Team-Id")).toBe("team-1");
+  });
+
+  it.each(["personal", "desktop", "cli"])("does not attach a Team to Trash in %s mode", async (mode) => {
+    useActiveTeam(mode === "personal" ? "" : "team-1");
+    if (mode === "desktop") vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+    if (mode === "cli") vi.stubGlobal("window", { ERD_INSTALL_MODE: "cli" });
+    const fetchMock = vi.fn().mockResolvedValue(new Response());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await apiFetch("/api/trash");
+
+    expect(new Headers(fetchMock.mock.calls[0][1].headers).has("X-Team-Id")).toBe(false);
+  });
+
   it("sends the active Team to all Team-scoped AI endpoints", async () => {
     useActiveTeam();
     const fetchMock = vi.fn().mockResolvedValue(new Response());

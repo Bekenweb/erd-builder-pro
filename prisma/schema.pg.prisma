@@ -235,6 +235,43 @@ model ProjectAccessGrant {
   @@map("project_access_grants")
 }
 
+// ── Storage accounting (CLD-010) ──
+// One row per uploaded object in PostgreSQL modes: owner scope, uploader and size, so quota, audit,
+// the Library and read access never depend on scanning document content.
+model StorageObject {
+  key               String    @id
+  scopeType         String    @map("scope_type")
+  scopeId           String    @map("scope_id")
+  uploadedBy        String?   @map("uploaded_by")
+  feature           String
+  /** The Note or Drawing an image was uploaded into; groups its per-document budget (G4). */
+  documentUid       String?   @map("document_uid")
+  mimeType          String    @map("mime_type")
+  bytes             Int
+  status            String    @default("pending")
+  unreferencedSince DateTime? @map("unreferenced_since") @db.Timestamptz(3)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([scopeType, scopeId, status], map: "idx_storage_objects_scope")
+  @@index([status, unreferencedSince], map: "idx_storage_objects_sweep")
+  @@index([documentUid], map: "idx_storage_objects_document")
+  @@map("storage_objects")
+}
+
+// Document bytes per scope, recomputed in the background; asset bytes are summed live from storage_objects.
+model StorageUsage {
+  scopeType     String   @map("scope_type")
+  scopeId       String   @map("scope_id")
+  documentBytes BigInt   @default(0) @map("document_bytes")
+  revisionBytes BigInt   @default(0) @map("revision_bytes")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@id([scopeType, scopeId])
+  @@map("storage_usage")
+}
+
 // ── Diagram (ERD) ──
 model Diagram {
   id           Int      @id @default(autoincrement())

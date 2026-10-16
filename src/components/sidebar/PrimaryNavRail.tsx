@@ -11,6 +11,7 @@ import {
   Shield,
   UsersRound,
   type LucideIcon,
+  Library,
 } from "lucide-react"
 import { useLocation, useNavigate } from "react-router-dom"
 
@@ -143,7 +144,7 @@ export function PrimaryNavRail({
             />
             {user?.isSso && ssoPortalUrl && (
               <RailAction
-                label="Open ERDBPro SaaS (Cloud SaaS)"
+                label="Manage account & billing"
                 icon={ExternalLink}
                 onClick={openSaaS}
               />
@@ -222,6 +223,21 @@ export function PrimaryNavRail({
               onClick={() => onFeatureClick("Drawings", "drawings", () => onViewChange("drawings", true))}
             />
           </SidebarMenu>
+
+          {user?.isSso && (
+            <>
+              <div className="mx-auto h-px w-8 bg-sidebar-border" aria-hidden="true" />
+              <SidebarMenu className="gap-1">
+                <RailAction
+                  label="Library"
+                  icon={Library}
+                  active={location.pathname === "/library"}
+                  disabled={!isOnline}
+                  onClick={() => navigate("/library")}
+                />
+              </SidebarMenu>
+            </>
+          )}
         </div>
       </SidebarContent>
 

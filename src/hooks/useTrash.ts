@@ -12,6 +12,8 @@ export function useTrash(isGuest: boolean = false) {
     drawings: Drawing[];
     flowcharts: Flowchart[];
     projects: Project[];
+    /** Days until the server purges Trash automatically; 0 means never (CLD-010 Q19). */
+    retentionDays?: number;
   }>({ diagrams: [], dbClients: [], notes: [], drawings: [], flowcharts: [], projects: [] });
   const [isLoading, setIsLoading] = useState(true);
   const isGuestRef = useRef(isGuest);
@@ -59,6 +61,7 @@ export function useTrash(isGuest: boolean = false) {
           drawings: Array.isArray(data.drawings) ? data.drawings.sort((a: any, b: any) => b.id - a.id) : [],
           flowcharts: Array.isArray(data.flowcharts) ? data.flowcharts.sort((a: any, b: any) => b.id - a.id) : [],
           projects: Array.isArray(data.projects) ? data.projects.sort((a: any, b: any) => b.id - a.id) : [],
+          retentionDays: Number(data.retention_days) || 0,
         };
         setTrashData(sortedData);
       }

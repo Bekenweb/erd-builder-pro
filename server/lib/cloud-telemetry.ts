@@ -78,6 +78,48 @@ async function aggregateAiUsage(reportedAt: string): Promise<Array<{
   }));
 }
 
+type StorageUsageReport = {
+  organization_id: string;
+  document_bytes: number;
+  asset_bytes: number;
+  unused_asset_bytes: number;
+  revision_bytes: number;
+  files: { diagrams: number; notes: number; drawings: number; flowcharts: number };
+  reported_at: string;
+};
+
+/**
+ * Aggregate storage per Team organization (CLD-010 Tahap 0): byte totals and file counts only, never content or keys.
+ * Asset bytes follow the quota rule: objects unreferenced for seven days or more no longer count.
+ */
+export async function aggregateStorageUsage(reportedAt: string): Promise<StorageUsageReport[]> {
+  if (!prisma || !isPostgresDatabase()) return [];
+  const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(`
+    SELECT t."sso_organization_id" AS organization_id,
+           COALESCE(u."document_bytes", 0) AS document_bytes,
+           COALESCE(u."revision_bytes", 0) AS revision_bytes,
+           COALESCE((SELECT SUM(o."bytes") FROM "storage_objects" o WHERE o."scope_type" = 'team' AND o."scope_id" = t."id"
+             AND o."status" IN ('pending', 'committed') AND (o."unreferenced_since" IS NULL OR o."unreferenced_since" > NOW() - INTERVAL '7 days')), 0) AS asset_bytes,
+           COALESCE((SELECT SUM(o."bytes") FROM "storage_objects" o WHERE o."scope_type" = 'team' AND o."scope_id" = t."id"
+             AND o."status" = 'committed' AND o."unreferenced_since" IS NOT NULL), 0) AS unused_asset_bytes,
+           (SELECT COUNT(*) FROM "diagrams" f JOIN "projects" p ON p."id" = f."project_id" WHERE p."team_id" = t."id") AS diagrams,
+           (SELECT COUNT(*) FROM "notes" f JOIN "projects" p ON p."id" = f."project_id" WHERE p."team_id" = t."id") AS notes,
+           (SELECT COUNT(*) FROM "drawings" f JOIN "projects" p ON p."id" = f."project_id" WHERE p."team_id" = t."id") AS drawings,
+           (SELECT COUNT(*) FROM "flowcharts" f JOIN "projects" p ON p."id" = f."project_id" WHERE p."team_id" = t."id") AS flowcharts
+      FROM "teams" t
+      LEFT JOIN "storage_usage" u ON u."scope_type" = 'team' AND u."scope_id" = t."id"
+     WHERE t."sso_organization_id" IS NOT NULL`);
+  return rows.map((row) => ({
+    organization_id: String(row.organization_id),
+    document_bytes: Number(row.document_bytes),
+    asset_bytes: Number(row.asset_bytes),
+    unused_asset_bytes: Number(row.unused_asset_bytes),
+    revision_bytes: Number(row.revision_bytes),
+    files: { diagrams: Number(row.diagrams), notes: Number(row.notes), drawings: Number(row.drawings), flowcharts: Number(row.flowcharts) },
+    reported_at: reportedAt,
+  }));
+}
+
 export async function sendCloudTelemetryHeartbeat(): Promise<boolean> {
   if (!isSsoAuthMode() || !prisma) return false;
 
@@ -89,9 +131,13 @@ export async function sendCloudTelemetryHeartbeat(): Promise<boolean> {
     const observedAt = new Date().toISOString();
     const aggregateSnapshot = await aggregate();
     const aiUsage = await aggregateAiUsage(observedAt);
-    const batches = aiUsage.length > 0
-      ? Array.from({ length: Math.ceil(aiUsage.length / 100) }, (_, index) => aiUsage.slice(index * 100, index * 100 + 100))
-      : [[]];
+    const storageUsage = await aggregateStorageUsage(observedAt).catch(() => [] as StorageUsageReport[]);
+    const storageBytes = storageUsage.reduce((sum, report) => sum + report.document_bytes + report.asset_bytes, 0);
+    const batchCount = Math.max(1, Math.ceil(aiUsage.length / 100), Math.ceil(storageUsage.length / 100));
+    const batches = Array.from({ length: batchCount }, (_, index) => ({
+      ai: aiUsage.slice(index * 100, index * 100 + 100),
+      storage: storageUsage.slice(index * 100, index * 100 + 100),
+    }));
     const url = new URL("/api/v1/cloud/telemetry/heartbeat", config.issuerUrl).toString();
     for (const batch of batches) {
       const response = await fetchWithTimeout(url, {
@@ -103,8 +149,9 @@ export async function sendCloudTelemetryHeartbeat(): Promise<boolean> {
           observed_at: observedAt,
           version: config.version,
           status: "ready",
-          aggregate: aggregateSnapshot,
-          ai_usage: batch,
+          aggregate: { ...aggregateSnapshot, storage_bytes: storageBytes },
+          ai_usage: batch.ai,
+          storage_usage: batch.storage,
           error_codes: [],
         }),
       });

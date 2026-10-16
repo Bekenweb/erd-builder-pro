@@ -38,7 +38,7 @@ export interface WorkspaceContextValue {
   drawings: any[];
   flowcharts: any[];
   projects: any[];
-  trashData: { diagrams: any[]; dbClients: any[]; notes: any[]; drawings: any[]; flowcharts: any[]; projects: any[] };
+  trashData: { diagrams: any[]; dbClients: any[]; notes: any[]; drawings: any[]; flowcharts: any[]; projects: any[]; retentionDays?: number };
   nodes: Node<Entity>[];
   edges: Edge[];
   setNodes: (nodes: Node<Entity>[] | ((prev: Node<Entity>[]) => Node<Entity>[])) => void;

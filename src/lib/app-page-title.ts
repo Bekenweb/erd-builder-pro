@@ -21,6 +21,7 @@ export function getAppPageTitle({
   if (isFileRoute && activeFileName) return `${activeFileName} | ${APP_NAME}`;
   if (path === "/") return `Dashboard | ${APP_NAME}`;
   if (path === "/trash") return `Trash | ${APP_NAME}`;
+  if (path === "/library") return `Library | ${APP_NAME}`;
   if (path === "/team-workspaces") return `Team Workspaces | ${APP_NAME}`;
   if (path === "/users") return `User Management | ${APP_NAME}`;
   if (path.startsWith("/teams/")) return `${breadcrumbLabel || "Team management"} | ${APP_NAME}`;

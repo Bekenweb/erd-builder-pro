@@ -146,6 +146,14 @@ export async function captureEntityRevision(input: CaptureRevisionInput) {
   return revision;
 }
 
+/** Drops every revision of permanently deleted documents, since nothing can restore them any more (CLD-010 S1). */
+export async function deleteEntityRevisions(entityType: HistoryEntityType, entityIds: Array<string | number | bigint>) {
+  if (!prisma || entityIds.length === 0) return;
+  await prisma.entityChange.deleteMany({
+    where: { entityType: { in: [entityType, entityType.slice(0, -1)] }, entityId: { in: entityIds.map(String) } },
+  });
+}
+
 export async function captureEntityRevisionSafely(input: CaptureRevisionInput) {
   try {
     return await captureEntityRevision(input);

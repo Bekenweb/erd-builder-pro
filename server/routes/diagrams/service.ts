@@ -3,6 +3,7 @@ import { createPersonalFile } from "../../lib/personal-file-quota.js";
 import { creatorFileIdentifierWhere, editableFileIdentifierWhere, fileIdentifierWhere, fileScopeWhere } from "../../lib/team-scope.js";
 import { isForeignProjectMove } from "../../lib/project-access.js";
 import { logger } from "../../lib/logger.js";
+import { deleteEntityRevisions } from "../../lib/entity-history.js";
 
 // ── Helpers ──
 
@@ -371,6 +372,7 @@ export async function permanentDeleteDiagram(diagramId: number) {
     await tx.entity.deleteMany({ where: { diagramId } });
     await tx.diagram.deleteMany({ where: { id: diagramId } });
   });
+  await deleteEntityRevisions("diagrams", [diagramId]);
 }
 
 // ── Public / Share ──

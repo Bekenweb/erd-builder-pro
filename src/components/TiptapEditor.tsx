@@ -21,7 +21,7 @@ import Underline from '@tiptap/extension-underline';
 import DragHandle from '@tiptap/extension-drag-handle';
 import Mention from '@tiptap/extension-mention';
 
-import { compressImage } from '../lib/image-compression';
+import { compressImage, IMAGE_INPUT_ACCEPT } from '../lib/image-compression';
 import { SlashMenu } from './SlashMenu';
 import { AnimatePresence } from 'framer-motion';
 import { marked } from 'marked';
@@ -130,9 +130,11 @@ interface TiptapEditorProps {
   onRequestComment?: (request: { id: string; beforeContent: string; content: string }) => Promise<boolean>;
   /** The Note as a comment target; with onRequestComment it turns on Notion-style block comments. */
   commentFile?: CommentFileRef | null;
+  /** The Note being edited, so its uploads count against its image budget (CLD-010 G4). */
+  documentUid?: string | null;
 }
 
-export function TiptapEditor({ content, onChange, isReadOnly = false, disableAISelection = false, targetProjectId, noteTitle, compactLayout = false, onRequestCompanion, onRequestComment, commentFile = null }: TiptapEditorProps) {
+export function TiptapEditor({ content, onChange, isReadOnly = false, disableAISelection = false, targetProjectId, noteTitle, compactLayout = false, onRequestCompanion, onRequestComment, commentFile = null, documentUid = null }: TiptapEditorProps) {
   const { setSelectionText } = useAIAction();
   const {
     diagrams, flowcharts,
@@ -224,11 +226,12 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
     const file = event.target.files?.[0];
     if (file) {
       try {
-        const compressedFile = await compressImage(file, { maxWidth: 1280, quality: 0.8 });
+        const compressedFile = await compressImage(file);
 
         const formData = new FormData();
         formData.append('image', compressedFile);
         formData.append('feature', 'notes');
+        if (documentUid) formData.append('document', documentUid);
 
         const response = await apiFetch('/api/upload', {
           method: 'POST',
@@ -329,6 +332,8 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
     TiptapImage.configure({
       inline: true,
       allowBase64: true,
+      // Images below the fold load only when scrolled near, keeping page weight down (CLD-010 G5).
+      HTMLAttributes: { loading: 'lazy', decoding: 'async' },
     }),
     LucideIconExtension,
     IconSpaceReset,
@@ -806,7 +811,7 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
       <input
         type="file"
         id="tiptap-image-upload"
-        accept="image/*"
+        accept={IMAGE_INPUT_ACCEPT}
         ref={fileInputRef}
         onChange={handleImageUpload}
         className="hidden"
