@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import pg from "pg";
@@ -84,6 +85,20 @@ describe.skipIf(!enabled)("CLD-010 storage accounting in an isolated PostgreSQL 
       await db.teamMember.create({ data: { teamId: team, userId, status } });
     }
     project = await db.project.create({ data: { name: "Shared", teamId, userId: users.owner } });
+  });
+
+  it("upgrades existing storage rows additively and can reapply the document migration", async () => {
+    const key = `erd-builder-pro/${teamScope.prefix}/notes/upgrade.png`;
+    await upload(key, 25);
+    const connection = await pool.connect();
+    try {
+      await connection.query(`SET search_path TO "${schema}"`);
+      await connection.query('ALTER TABLE "storage_objects" DROP COLUMN "document_uid"');
+      const sql = readFileSync(path.resolve("prisma/migrations-pg/20261016090000_add_storage_object_document/migration.sql"), "utf8");
+      await connection.query(sql);
+      await connection.query(sql);
+    } finally { connection.release(); }
+    expect(await fixture.db.storageObject.findUnique({ where: { key } })).toMatchObject({ key, bytes: 25, documentUid: null });
   });
 
   afterAll(async () => {
