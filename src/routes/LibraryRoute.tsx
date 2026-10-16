@@ -151,8 +151,8 @@ export function LibraryRoute() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-6 custom-scrollbar">
-        {!loading && items.length === 0 ? (
-          <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
+        {items.length === 0 ? (
+          !loading && <div className="rounded-lg border border-dashed py-12 text-center text-muted-foreground">
             {filter === "unused" ? "No unused files." : "No files uploaded yet."}
           </div>
         ) : (
