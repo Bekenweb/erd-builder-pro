@@ -79,7 +79,10 @@ describe("Cloud AI access", () => {
     mocks.ssoMode = true;
   });
 
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
 
   it("rejects an active Team without the AI capability", async () => {
     mocks.findUnique.mockResolvedValue({ status: "active", cloudEntitlement: entitlement({ erd_builder: true }) });
@@ -232,6 +235,7 @@ describe("Cloud AI access", () => {
   });
 
   it("sends only aggregate telemetry in Cloud SSO mode", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://localhost/telemetry_unit_test");
     const response = (payload: unknown, status = 200) => ({
       ok: status >= 200 && status < 300,
       status,
