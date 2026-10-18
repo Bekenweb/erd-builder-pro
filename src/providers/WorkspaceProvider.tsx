@@ -80,6 +80,8 @@ function deriveViewFromPath(pathname: string): AppView {
 }
 
 
+import { ERDCanvasProvider, SettledERDCanvasProvider, useSettledERDCanvasSnapshot } from '@/contexts/ERDCanvasContext';
+import { useStableHandlers } from '@/hooks/useStableHandlers';
 import { WorkspaceContext, WorkspaceContextValue, FlowchartExportHandler, useWorkspace } from './WorkspaceContext';
 
 // ──────────────────────────────────────────────────────
@@ -1083,8 +1085,22 @@ export function WorkspaceProvider({
   // ── Flowchart SVG export handler (set by FlowchartView) ──
   const [flowchartExportHandler, setFlowchartExportHandler] = React.useState<FlowchartExportHandler | null>(null);
 
+  // These close over canvas state or are recreated on every render; fixed identities keep the context value
+  // stable while dragging.
+  const stableHandlers = useStableHandlers({
+    handleViewChange, handleDiagramSelect, handleDrawingSelect, refreshActiveDocument, handleEntityUpdate, handleSidebarDiagramCreate,
+    handleSidebarNoteCreate, handleSidebarDrawingCreate, handleSidebarFlowchartCreate, handleSidebarProjectCreate, handleSidebarProjectUpdate, handleSidebarProjectDelete,
+    handleHeaderExportSQL, executeImportMarkdown, executeDuplicate, onConnect, undo, redo,
+    addEntity, duplicateEntity, deleteEntity, deleteEdge, handleEdgeUpdate, handleEdgeFlip,
+    handleWorkspaceExportSQL, handleTrashRestoreProject, handleTrashRestoreDiagram, handleTrashRestoreNote, handleTrashRestoreDrawing, handleTrashRestoreFlowchart,
+    handleTrashRestoreDbClient, confirmPermanentDelete, updateDiagram, updateNote, updateDrawing, updateFlowchart,
+    deleteDiagram, deleteNote, deleteDrawing, deleteFlowchart, moveDiagramToProject, moveNoteToProject,
+    moveDrawingToProject, moveFlowchartToProject,
+  });
+
   // ── Context value ──
   const ctx = useMemo<WorkspaceContextValue>(() => ({
+    ...stableHandlers,
     user,
     isGuest,
     isReadOnlyFile,
@@ -1098,7 +1114,7 @@ export function WorkspaceProvider({
     setIsPublicView,
     publicData,
 
-    diagrams, notes, drawings, flowcharts, projects, trashData, nodes, edges, setNodes, setEdges,
+    diagrams, notes, drawings, flowcharts, projects, trashData, setNodes, setEdges,
 
     activeDiagramId, setActiveDiagramId,
     activeNoteUid, setActiveNoteUid,
@@ -1133,12 +1149,9 @@ export function WorkspaceProvider({
     hasActiveItem, activeFileName, activeFileUid, activeProjectName,
     featureLabel, initialShareSettings, currentActiveId,
 
-    handleViewChange, handleNoteSelect, handleDiagramSelect, handleDrawingSelect, handleFlowchartSelect, refreshActiveDocument,
+    handleNoteSelect, handleFlowchartSelect,
     refreshTeamScope, flushPendingSaves: flushCurrentPendingSaves, teamScopeVersion,
-    handleNoteChange, cancelPendingNoteSaves, handleDrawingChange, handleFlowchartChange, handleEntityUpdate,
-
-    handleSidebarDiagramCreate, handleSidebarNoteCreate, handleSidebarDrawingCreate,
-    handleSidebarFlowchartCreate, handleSidebarProjectCreate, handleSidebarProjectUpdate, handleSidebarProjectDelete,
+    handleNoteChange, cancelPendingNoteSaves, handleDrawingChange, handleFlowchartChange,
 
     isMoveToTrashAlertOpen, setIsMoveToTrashAlertOpen,
     isDeleteAlertOpen, setIsDeleteAlertOpen,
@@ -1163,18 +1176,18 @@ export function WorkspaceProvider({
     theme, setTheme, resolvedTheme,
 
     handleHeaderDelete, handleHeaderRename, handleHeaderSettingsSaved,
-    handleHeaderExportSQL, handleHeaderExportImage,
-    handleExportMarkdown, handleCopyMarkdown, handleImportMarkdown, executeImportMarkdown,
-    handleDuplicate, executeDuplicate,
+    handleHeaderExportImage,
+    handleExportMarkdown, handleCopyMarkdown, handleImportMarkdown,
+    handleDuplicate,
 
     handleOpenEditDocument, handleOpenCreateDocument,
 
-    onNodesChange, onEdgesChange, onConnect,
+    onNodesChange, onEdgesChange,
     selectedNodeId, setSelectedNodeId, selectedEdgeId, setSelectedEdgeId,
-    selectedEntity, canUndo, canRedo, undo, redo, addEntity, duplicateEntity, deleteEntity, deleteEdge, handleEdgeUpdate, handleEdgeFlip,
+    selectedEntity, canUndo, canRedo,
     handleNodeClick, handleNodeDoubleClick, handleEdgeClick, handlePaneClick,
     handleMove, handleOpenImportModal,
-    handleWorkspaceExportSQL, handleWorkspaceExportImage,
+    handleWorkspaceExportImage,
     takeSnapshot, onNodeDragStop, onMoveEnd,
     extractColumnIdFromHandle, getRelationKey, dedupeEdgesByRelation,
 
@@ -1183,18 +1196,12 @@ export function WorkspaceProvider({
     syncDrafts, triggerDebouncedSync, broadcastMessage, setIsLocalSaving, hasPendingSyncs, syncError,
     isInstallable, installApp,
 
-    handleTrashRestoreProject, handleTrashRestoreDiagram, handleTrashRestoreNote,
-    handleTrashRestoreDrawing, handleTrashRestoreFlowchart, handleTrashRestoreDbClient,
     handleTrashProjectPermanentDelete, handleTrashDiagramPermanentDelete,
     handleTrashNotePermanentDelete, handleTrashDrawingPermanentDelete,
     handleTrashFlowchartPermanentDelete, handleTrashDbClientPermanentDelete, fetchTrash, isTrashLoading,
 
-    confirmPermanentDelete,
-
     saveDiagram, saveNote, saveDrawing, saveFlowchart,
-    updateDiagram, updateNote, updateDrawing, updateFlowchart,
-    deleteDiagram, deleteNote, deleteDrawing, deleteFlowchart,
-    moveDiagramToProject, moveNoteToProject, moveDrawingToProject, moveFlowchartToProject,
+
     fetchProjects, fetchDiagrams, fetchNotes, fetchDrawings, fetchFlowcharts,
 
     notesTotal, diagramsTotal, drawingsTotal, flowchartsTotal,
@@ -1209,10 +1216,11 @@ export function WorkspaceProvider({
     checkForUpdates, downloadUpdate,
     isWebOutdated, showOutdatedBadge,
   }), [
+    stableHandlers,
     isReadOnlyFile, getFileAccessRole,
     user, isGuest, _handleLogout, view, sidebarView,
     isPublicView, setIsPublicView, publicData,
-    diagrams, notes, drawings, flowcharts, projects, trashData, nodes, edges, setNodes, setEdges,
+    diagrams, notes, drawings, flowcharts, projects, trashData, setNodes, setEdges,
     activeDiagramId, setActiveDiagramId, activeNoteUid, setActiveNoteUid,
     activeDrawingId, setActiveDrawingId, activeFlowchartId, setActiveFlowchartId,
     activeProjectId, setActiveProjectId,
@@ -1226,12 +1234,9 @@ export function WorkspaceProvider({
     hasActiveItem, activeFileName, activeFileUid, activeProjectName,
     featureLabel, initialShareSettings, currentActiveId,
     // Navigation/Content/Entity handlers — stable enough via hooks
-    handleViewChange, handleNoteSelect, handleDiagramSelect, handleDrawingSelect, handleFlowchartSelect, refreshActiveDocument,
+    handleNoteSelect, handleFlowchartSelect,
     refreshTeamScope, flushCurrentPendingSaves, teamScopeVersion, isTeamScopeRefreshing,
-    handleNoteChange, cancelPendingNoteSaves, handleDrawingChange, handleFlowchartChange, handleEntityUpdate,
-    // Sidebar handlers
-    handleSidebarDiagramCreate, handleSidebarNoteCreate, handleSidebarDrawingCreate,
-    handleSidebarFlowchartCreate, handleSidebarProjectCreate, handleSidebarProjectUpdate, handleSidebarProjectDelete,
+    handleNoteChange, cancelPendingNoteSaves, handleDrawingChange, handleFlowchartChange,
     // Modal states — all booleans/strings
     isMoveToTrashAlertOpen, setIsMoveToTrashAlertOpen,
     isDeleteAlertOpen, setIsDeleteAlertOpen,
@@ -1248,32 +1253,28 @@ export function WorkspaceProvider({
     editDialogNote, setEditDialogNote, tableDeleteDoc, setTableDeleteDoc,
     // Header handlers
     handleHeaderDelete, handleHeaderRename, handleHeaderSettingsSaved,
-    handleHeaderExportSQL, handleHeaderExportImage,
-    handleExportMarkdown, handleCopyMarkdown, handleImportMarkdown, executeImportMarkdown,
-    handleDuplicate, executeDuplicate,
+    handleHeaderExportImage,
+    handleExportMarkdown, handleCopyMarkdown, handleImportMarkdown,
+    handleDuplicate,
     handleOpenEditDocument, handleOpenCreateDocument,
     // ERD helpers
-    onNodesChange, onEdgesChange, onConnect,
+    onNodesChange, onEdgesChange,
     selectedNodeId, setSelectedNodeId, selectedEdgeId, setSelectedEdgeId,
-    selectedEntity, canUndo, canRedo, undo, redo, addEntity, duplicateEntity, deleteEntity, deleteEdge, handleEdgeUpdate, handleEdgeFlip,
+    selectedEntity, canUndo, canRedo,
     handleNodeClick, handleNodeDoubleClick, handleEdgeClick, handlePaneClick,
     handleMove, handleOpenImportModal,
-    handleWorkspaceExportSQL, handleWorkspaceExportImage,
+    handleWorkspaceExportImage,
     takeSnapshot, onNodeDragStop, onMoveEnd,
     extractColumnIdFromHandle, getRelationKey, dedupeEdgesByRelation,
     viewportRef, lastLoadedDiagramIdRef,
     syncDrafts, triggerDebouncedSync, broadcastMessage, setIsLocalSaving, hasPendingSyncs, syncError,
     isInstallable, installApp,
-    handleTrashRestoreProject, handleTrashRestoreDiagram, handleTrashRestoreNote,
-    handleTrashRestoreDrawing, handleTrashRestoreFlowchart, handleTrashRestoreDbClient,
+
     handleTrashProjectPermanentDelete, handleTrashDiagramPermanentDelete,
     handleTrashNotePermanentDelete, handleTrashDrawingPermanentDelete,
     handleTrashFlowchartPermanentDelete, handleTrashDbClientPermanentDelete, fetchTrash, isTrashLoading,
-    confirmPermanentDelete,
     saveDiagram, saveNote, saveDrawing, saveFlowchart,
-    updateDiagram, updateNote, updateDrawing, updateFlowchart,
-    deleteDiagram, deleteNote, deleteDrawing, deleteFlowchart,
-    moveDiagramToProject, moveNoteToProject, moveDrawingToProject, moveFlowchartToProject,
+
     fetchProjects, fetchDiagrams, fetchNotes, fetchDrawings, fetchFlowcharts,
     notesTotal, diagramsTotal, drawingsTotal, flowchartsTotal,
     tablePage,
@@ -1286,22 +1287,22 @@ export function WorkspaceProvider({
     theme, setTheme, resolvedTheme,
   ]);
 
-  // duplicateEntity depends on `nodes`; route it through a ref so the node context stays stable while dragging.
-  const duplicateEntityRef = useRef(duplicateEntity);
-  duplicateEntityRef.current = duplicateEntity;
-  const stableDuplicateEntity = useCallback((id: string) => duplicateEntityRef.current(id), []);
   const activeSourceType = activeDocument?.source_type;
   const isActiveDiagramReadOnly = isPublicView || isReadOnlyFile(activeDiagram);
   const entityNodeContext = useMemo(() => ({
     isReadOnly: isActiveDiagramReadOnly,
     sourceType: activeSourceType,
-    duplicateEntity: stableDuplicateEntity,
+    duplicateEntity: stableHandlers.duplicateEntity,
     setSelectedNodeId,
-  }), [isActiveDiagramReadOnly, activeSourceType, stableDuplicateEntity, setSelectedNodeId]);
+  }), [isActiveDiagramReadOnly, activeSourceType, stableHandlers.duplicateEntity, setSelectedNodeId]);
+  const erdCanvas = useMemo(() => ({ nodes, edges }), [nodes, edges]);
+  const settledErdCanvas = useSettledERDCanvasSnapshot(erdCanvas);
 
   return (
     <WorkspaceContext.Provider value={ctx}>
       <EntityNodeProvider value={entityNodeContext}>
+      <ERDCanvasProvider value={erdCanvas}>
+      <SettledERDCanvasProvider value={settledErdCanvas}>
       <NotesPage
         notes={notes}
         setNotes={setNotes}
@@ -1316,6 +1317,8 @@ export function WorkspaceProvider({
       <DashboardPage />
       <FlowchartPage />
       {children}
+      </SettledERDCanvasProvider>
+      </ERDCanvasProvider>
       </EntityNodeProvider>
     </WorkspaceContext.Provider>
   );

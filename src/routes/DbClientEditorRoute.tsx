@@ -4,6 +4,7 @@ import { useEdgesState, useNodesState, useReactFlow, type Edge, type Node } from
 import { Database } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { autoLayoutERD } from '@/lib/autoLayoutERD';
+import { alignErdHandles } from '@/lib/erd-geometry';
 import { canvasLayout, dbSchemaToCanvas } from '@/lib/db-client-schema';
 import { getDbClientCache, getSchemaCache, setDbClientCache, setSchemaCache } from '@/hooks/useDataViewerHelpers';
 import { useImageExporter } from '@/hooks/useImageExporter';
@@ -136,9 +137,11 @@ export function DbClientEditorRoute() {
 
   const handleAutoLayout = useCallback(() => {
     const nextNodes = autoLayoutERD(nodes, edges);
+    const nextEdges = alignErdHandles(nextNodes, edges);
     setNodes(nextNodes);
-    void saveLayout(viewportRef.current, nextNodes);
-  }, [edges, nodes, saveLayout, setNodes]);
+    setEdges(nextEdges);
+    void saveLayout(viewportRef.current, nextNodes, nextEdges);
+  }, [edges, nodes, saveLayout, setNodes, setEdges]);
 
   const handleEdgeFlip = useCallback((edgeId: string) => {
     const toggleSide = (handle?: string | null) => {

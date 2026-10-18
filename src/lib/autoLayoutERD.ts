@@ -1,129 +1,82 @@
-import { Node, Edge } from '@xyflow/react';
-import { Entity } from '@/types';
+import type { Node, Edge } from '@xyflow/react';
+import type { Entity } from '@/types';
+import { tableSize } from './erd-geometry';
 
-const START_X = 50;
-const START_Y = 50;
-const COL_TO_WIDTH_ESTIMATE = 6;
-const BASE_TABLE_WIDTH = 220;
-const HORIZONTAL_GAP = 24;
-const VERTICAL_GAP = 32;
-
-const HEADER_H = 44;
-const ROW_H = 36;
-
-function estimateNodeWidth(node: Node<Entity>): number {
-  const colCount = node.data.columns?.length || 0;
-  return BASE_TABLE_WIDTH + colCount * COL_TO_WIDTH_ESTIMATE;
-}
-
-function estimateNodeHeight(node: Node<Entity>): number {
-  const colCount = node.data.columns?.length || 0;
-  return HEADER_H + colCount * ROW_H + 4;
-}
-
-export function autoLayoutERD(
-  nodes: Node<Entity>[],
-  edges: Edge[],
-): Node<Entity>[] {
-  if (nodes.length === 0) return nodes;
-
-  // Build FK dependency map: for each node, which other nodes does it reference?
-  const refs = new Map<string, Set<string>>();
-  for (const n of nodes) {
-    refs.set(n.id, new Set());
+export function autoLayoutERD(nodes: Node<Entity>[], edges: Edge[]): Node<Entity>[] {
+  if (!nodes.length) return nodes;
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const compare = (a: string, b: string) => byId.get(a)!.data.name.localeCompare(byId.get(b)!.data.name) || a.localeCompare(b);
+  const ids = [...byId.keys()].sort(compare);
+  const parents = new Map(ids.map(id => [id, new Set<string>()]));
+  const neighbors = new Map(ids.map(id => [id, new Set<string>()]));
+  for (const edge of edges) if (byId.has(edge.source) && byId.has(edge.target) && edge.source !== edge.target) {
+    parents.get(edge.source)!.add(edge.target);
+    neighbors.get(edge.source)!.add(edge.target);
+    neighbors.get(edge.target)!.add(edge.source);
   }
-  for (const edge of edges) {
-    const source = edge.source;
-    // FK edge goes from child (FK holder) to parent (referenced table)
-    if (refs.has(source)) {
-      refs.get(source)!.add(edge.target);
+
+  // Collapse cycles so they cannot swallow their descendants' layers.
+  let index = 0;
+  const indices = new Map<string, number>(), low = new Map<string, number>();
+  const stack: string[] = [], active = new Set<string>(), components: string[][] = [];
+  const visit = (id: string) => {
+    indices.set(id, index); low.set(id, index++); stack.push(id); active.add(id);
+    for (const parent of [...parents.get(id)!].sort(compare)) {
+      if (!indices.has(parent)) { visit(parent); low.set(id, Math.min(low.get(id)!, low.get(parent)!)); }
+      else if (active.has(parent)) low.set(id, Math.min(low.get(id)!, indices.get(parent)!));
     }
-  }
+    if (low.get(id) === indices.get(id)) {
+      const group: string[] = [];
+      let member: string;
+      do { member = stack.pop()!; active.delete(member); group.push(member); } while (member !== id);
+      components.push(group.sort(compare));
+    }
+  };
+  ids.forEach(id => { if (!indices.has(id)) visit(id); });
+  const componentOf = new Map(components.flatMap((group, i) => group.map(id => [id, i] as const)));
+  const ranks = new Map<number, number>();
+  const rank = (i: number): number => {
+    if (ranks.has(i)) return ranks.get(i)!;
+    let value = 0;
+    for (const id of components[i]) for (const parent of parents.get(id)!) {
+      const p = componentOf.get(parent)!;
+      if (p !== i) value = Math.max(value, rank(p) + 1);
+    }
+    ranks.set(i, value); return value;
+  };
+  components.forEach((_, i) => rank(i));
 
-  // Compute layers via BFS: layer 0 = no outgoing FK (standalone),
-  // layer N+1 = tables that reference tables in earlier layers
-  const layerOf = new Map<string, number>();
-  const remaining = new Set(nodes.map(n => n.id));
-
-  let currentLayer = 0;
-  while (remaining.size > 0) {
-    // Find nodes whose dependencies are already assigned or have no dependencies
-    const layerNodes: string[] = [];
-    for (const id of remaining) {
-      const deps = refs.get(id) || new Set();
-      // A node goes into this layer if all its dependencies are in previous layers
-      const allDepsAssigned = [...deps].every(dep => !remaining.has(dep));
-      if (allDepsAssigned) {
-        layerNodes.push(id);
+  const positions = new Map<string, { x: number; y: number }>();
+  const seen = new Set<string>();
+  let groupY = 50;
+  for (const root of ids) {
+    if (seen.has(root)) continue;
+    const group = [root]; seen.add(root);
+    for (let i = 0; i < group.length; i++) for (const neighbor of [...neighbors.get(group[i])!].sort(compare)) {
+      if (!seen.has(neighbor)) { seen.add(neighbor); group.push(neighbor); }
+    }
+    const layers = new Map<number, string[]>();
+    for (const id of group) {
+      const r = ranks.get(componentOf.get(id)!)!;
+      layers.set(r, [...layers.get(r) || [], id]);
+    }
+    let x = 50, bottom = groupY;
+    for (const [, layer] of [...layers].sort(([a], [b]) => a - b)) {
+      const parentCenter = (id: string) => {
+        const points = [...parents.get(id)!].map(p => positions.get(p)).filter(p => p !== undefined);
+        return points.length ? points.reduce((s, p) => s + p.y, 0) / points.length : groupY;
+      };
+      layer.sort((a, b) => parentCenter(a) - parentCenter(b) || compare(a, b));
+      let y = groupY;
+      for (const id of layer) {
+        y = Math.max(y, parentCenter(id));
+        positions.set(id, { x, y });
+        y += tableSize(byId.get(id)!).height + 48;
       }
+      bottom = Math.max(bottom, y);
+      x += Math.max(...layer.map(id => tableSize(byId.get(id)!).width)) + 120;
     }
-
-    if (layerNodes.length === 0) {
-      // Circular dependency or isolated — put remaining into this layer
-      for (const id of remaining) {
-        layerNodes.push(id);
-      }
-    }
-
-    for (const id of layerNodes) {
-      layerOf.set(id, currentLayer);
-      remaining.delete(id);
-    }
-    currentLayer++;
+    groupY = bottom + 72;
   }
-
-  // Arrange nodes within each layer
-  const layers = new Map<number, string[]>();
-  for (const [id, layer] of layerOf) {
-    if (!layers.has(layer)) layers.set(layer, []);
-    layers.get(layer)!.push(id);
-  }
-
-  // Create a clean copy with new positions
-  const result = nodes.map(n => ({
-    ...n,
-    position: { ...n.position },
-    data: { ...n.data },
-  }));
-
-  const nodesById = new Map(result.map(node => [node.id, node]));
-  const layerSizes = new Map<number, { width: number; height: number }>();
-
-  for (const [layer, ids] of layers) {
-    const width = ids.reduce((total, id) => total + estimateNodeWidth(nodesById.get(id)!), 0)
-      + Math.max(0, ids.length - 1) * HORIZONTAL_GAP;
-    const height = Math.max(...ids.map(id => estimateNodeHeight(nodesById.get(id)!)), 0);
-    layerSizes.set(layer, { width, height });
-  }
-
-  const canvasWidth = Math.max(...[...layerSizes.values()].map(size => size.width), 0);
-  let currentY = START_Y;
-
-  for (const [layer, ids] of layers) {
-    ids.sort((a, b) => {
-      const na = nodesById.get(a)?.data.name || '';
-      const nb = nodesById.get(b)?.data.name || '';
-      return na.localeCompare(nb);
-    });
-
-    const { width: layerWidth, height: layerHeight } = layerSizes.get(layer)!;
-    const startX = START_X + (canvasWidth - layerWidth) / 2;
-    const y = currentY;
-    let x = startX;
-
-    for (const id of ids) {
-      const node = nodesById.get(id);
-      if (node) {
-        node.position = {
-          x,
-          y,
-        };
-        x += estimateNodeWidth(node) + HORIZONTAL_GAP;
-      }
-    }
-
-    currentY += layerHeight + VERTICAL_GAP;
-  }
-
-  return result;
+  return nodes.map(node => ({ ...node, position: positions.get(node.id)!, data: { ...node.data } }));
 }

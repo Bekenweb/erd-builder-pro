@@ -5,6 +5,7 @@ import { dbmlToERD } from '@/lib/dbml-converter';
 import { COLUMN_TYPES } from '@/lib/utils';
 import { parseTypeModifiers, supportsColumnLength, supportsNumericPrecision } from '@/lib/column-metadata';
 import { extractDBML } from '../chatUtils';
+import { separateTables, tableSize } from '@/lib/erd-geometry';
 
 function cleanIdentifier(id: string): string {
   return id.replace(/["`[\]]/g, '').trim();
@@ -38,6 +39,7 @@ function mergeIntoDiagram(
   parsedNodes: Node<Entity>[],
   parsedEdges: Edge[],
 ): { nodes: Node<Entity>[]; edges: Edge[] } {
+  if (!currentNodes.length) return { nodes: parsedNodes, edges: parsedEdges };
   const nameToNode = new Map<string, Node<Entity>>();
   for (const n of currentNodes) {
     nameToNode.set(n.data.name.toLowerCase(), n);
@@ -67,14 +69,13 @@ function mergeIntoDiagram(
       };
     } else {
       // New table — compute a position near existing nodes
-      const maxX = currentNodes.reduce((max, n) => Math.max(max, n.position.x + 350), 50);
-      const maxY = currentNodes.reduce((max, n) => Math.max(max, n.position.y), 50);
+      const maxX = currentNodes.reduce((max, n) => Math.max(max, n.position.x + tableSize(n).width + 120), 50);
       mergedNodes.push({
         ...parsedNode,
         selected: undefined,
         position: {
-          x: maxX > 1200 ? 50 : maxX,
-          y: maxX > 1200 ? maxY + 400 : maxY,
+          x: maxX + parsedNode.position.x,
+          y: parsedNode.position.y,
         },
       });
     }
@@ -167,7 +168,7 @@ function mergeIntoDiagram(
     existingEdgeKeys.add(edgeKey);
   }
 
-  return { nodes: mergedNodes, edges: mergedEdges };
+  return { nodes: separateTables(mergedNodes), edges: mergedEdges };
 }
 
 function extractJSONFromMarkdown(text: string): string {
@@ -612,7 +613,7 @@ export function applyToErdContent(
         });
       }
 
-      return { nodes: mergedNodes, edges: [...mergedEdges, ...additionalEdges], action: 'erd-generate-sql' };
+      return { nodes: separateTables(mergedNodes), edges: [...mergedEdges, ...additionalEdges], action: 'erd-generate-sql' };
     }
 
     case 'erd-edit-column': {
@@ -624,7 +625,7 @@ export function applyToErdContent(
       const updatedNodes = tryParseMultiColumnChanges(currentNodes, nodeIds, extra?.selectedNodeId ?? null, aiResponse);
       if (!updatedNodes) return null;
 
-      return { nodes: updatedNodes, edges: currentEdges, action: 'erd-edit-column' };
+      return { nodes: separateTables(updatedNodes), edges: currentEdges, action: 'erd-edit-column' };
     }
 
     // Read-only actions — no diagram mutations

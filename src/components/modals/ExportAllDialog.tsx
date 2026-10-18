@@ -94,9 +94,11 @@ export const ExportAllDialog = ({
   const format = activeTab as AllExportFormat;
   const isSingleFile = SINGLE_FILE_TABS.has(activeTab);
 
+  // Mounted while closed and fed live nodes, so skip generation until open — otherwise it reran on every drag frame.
   const generatedCode = React.useMemo(() => {
+    if (!open) return '';
     return generateAllTablesCode(format, nodes, edges, fileName) + '\n\n';
-  }, [format, nodes, edges, fileName]);
+  }, [open, format, nodes, edges, fileName]);
 
   const codeMirrorExtensions = React.useMemo(() => {
     const getLang = (tab: string) => {

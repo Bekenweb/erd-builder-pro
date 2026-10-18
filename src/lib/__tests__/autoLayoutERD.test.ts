@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { autoLayoutERD } from '../autoLayoutERD';
+import { tablesOverlap } from '../erd-geometry';
 import { Node, Edge } from '@xyflow/react';
 import type { Entity, Column } from '@/types';
 
@@ -85,8 +86,8 @@ describe('autoLayoutERD', () => {
     ];
     const result = autoLayoutERD(nodes, []);
 
-    // All have same y if in same layer
-    expect(result[0].position.y).toBe(result[1].position.y);
+    // Independent tables must not overlap.
+    expect(tablesOverlap(result[0], result[1])).toBe(false);
   });
 
   it('places dependent tables in a deeper layer', () => {
@@ -101,8 +102,8 @@ describe('autoLayoutERD', () => {
     const usersNode = result.find(n => n.id === 't1')!;
     const postsNode = result.find(n => n.id === 't2')!;
 
-    // posts references users → posts should be in a later layer (higher y)
-    expect(postsNode.position.y).toBeGreaterThan(usersNode.position.y);
+    // The parent is on the left.
+    expect(postsNode.position.x).toBeGreaterThan(usersNode.position.x);
   });
 
   it('handles 3-level FK chain', () => {
@@ -122,9 +123,9 @@ describe('autoLayoutERD', () => {
     const postsNode = result.find(n => n.id === 't2')!;
     const commentsNode = result.find(n => n.id === 't3')!;
 
-    // Layered: users (top) → posts (mid) → comments (bottom)
-    expect(postsNode.position.y).toBeGreaterThan(usersNode.position.y);
-    expect(commentsNode.position.y).toBeGreaterThan(postsNode.position.y);
+    // Parent-to-child layers run left to right.
+    expect(postsNode.position.x).toBeGreaterThan(usersNode.position.x);
+    expect(commentsNode.position.x).toBeGreaterThan(postsNode.position.x);
   });
 
   it('sorts nodes alphabetically within each layer', () => {
@@ -135,16 +136,16 @@ describe('autoLayoutERD', () => {
     ];
     const result = autoLayoutERD(nodes, []);
 
-    // All in layer 0, sorted alphabetically left to right
+    // Independent groups are packed alphabetically.
     const alpha = result.find(n => n.id === 't_a')!;
     const mango = result.find(n => n.id === 't_m')!;
     const zebra = result.find(n => n.id === 't_z')!;
 
-    expect(alpha.position.x).toBeLessThan(mango.position.x);
-    expect(mango.position.x).toBeLessThan(zebra.position.x);
-    // Same y since same layer
-    expect(alpha.position.y).toBe(mango.position.y);
-    expect(mango.position.y).toBe(zebra.position.y);
+    expect(alpha.position.y).toBeLessThan(mango.position.y);
+    expect(mango.position.y).toBeLessThan(zebra.position.y);
+    // Same x for these independent groups
+    expect(alpha.position.x).toBe(mango.position.x);
+    expect(mango.position.x).toBe(zebra.position.x);
   });
 
   it('does not crash with circular FK references', () => {
@@ -190,14 +191,14 @@ describe('autoLayoutERD', () => {
     expect(result[0].position.y).toBeGreaterThanOrEqual(50);
   });
 
-  it('preserves x position difference between sibling tables in same layer', () => {
+  it('keeps independent tables separated', () => {
     const nodes = [
       makeNode('t1', 'alpha'),
       makeNode('t2', 'beta'),
     ];
     const result = autoLayoutERD(nodes, []);
-    const gap = Math.abs(result[1].position.x - result[0].position.x);
-    expect(gap).toBeGreaterThanOrEqual(220); // at least BASE_TABLE_WIDTH
+    const gap = Math.abs(result[1].position.y - result[0].position.y);
+    expect(tablesOverlap(result[0], result[1])).toBe(false);
   });
 
   it('does not use the widest table to space every sibling', () => {
@@ -215,6 +216,7 @@ describe('autoLayoutERD', () => {
     const alpha = result.find(n => n.id === 't1')!;
     const small = result.find(n => n.id === 't2')!;
 
-    expect(small.position.x - alpha.position.x).toBe(244);
+    expect(small.position.x).toBe(alpha.position.x);
+    expect(tablesOverlap(alpha, small)).toBe(false);
   });
 });

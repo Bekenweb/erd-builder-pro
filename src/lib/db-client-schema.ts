@@ -1,6 +1,8 @@
 import type { Edge, Node } from '@xyflow/react';
 import type { Entity } from '@/types';
 import { databaseColumnToERD } from '@/lib/column-metadata';
+import { autoLayoutERD } from './autoLayoutERD';
+import { alignErdHandles } from './erd-geometry';
 
 const columnId = (handle?: string | null) => handle?.replace(/^col-/, '').replace(/-(source|target)(-(l|r))?$/, '');
 
@@ -54,6 +56,10 @@ export function dbSchemaToCanvas(schema: any[], layout: any): { nodes: Node<Enti
         data: { constraint_name: foreignKey.constraint_name },
       });
     }
+  }
+  if (!Object.keys(positions).length) {
+    const laidOut = autoLayoutERD(nodes, edges);
+    return { nodes: laidOut, edges: alignErdHandles(laidOut, edges) };
   }
   return { nodes, edges };
 }

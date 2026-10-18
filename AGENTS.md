@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-React 18 + Vite 6 + Express.js + Prisma. Tailwind CSS v4, shadcn/ui, Cloudflare R2 for asset storage. All frontend DB access goes through `apiFetch` → Express → Prisma — no direct DB client in frontend. Three DB modes: Supabase (Postgres), pure PostgreSQL, SQLite (desktop).
+All frontend DB access goes through `apiFetch` → Express → Prisma — no direct DB client in frontend. Three DB modes: Supabase (Postgres), pure PostgreSQL, SQLite (desktop).
 
 **Features**: Notes (Tiptap), ERD (React Flow), Flowchart (React Flow), Drawings (Excalidraw), AI Assistant.
 
@@ -74,15 +74,11 @@ Theme selector → setTheme() → localStorage → update DOM class
 
 CSS variables from shadcn (`var(--popover)`, `var(--popover-foreground)`) used in JS style objects for React Flow edge labels.
 
-**Components patched**: ExcalidrawEditor, ERDView, FlowchartView, FlowchartExportModal, EntityNode, FlowchartNode, all dialogs/menus/modals. All hardcoded `bg-[#...]` replaced with theme-aware classes (`bg-card`, `bg-muted`, `bg-popover`, `text-foreground`).
-
 **Edge colors**: `defaultEdgeOptions` and `onConnect` use CSS variables for stroke/markerEnd color — theme-aware. `memoizedEdges` overrides both `markerEnd` AND `markerStart` when selected (fixes misalignment).
 
 ## UUID vs Numeric ID (Delete/Restore)
 
 **Critical bug pattern**: All document types have dual ID fields (`id` numeric + `uid` UUID). `delete*`/`restore*` functions must use **dual-field matching**: `ref.find(d => String(d.id) === String(uid) || String(d.uid) === String(uid))`. Old pattern `d.uid ?? d.id` failed when `uid` existed but caller passed numeric id.
-
-**Fixed in**: `useDiagrams.ts`, `useNotes.ts`, `useFlowcharts.ts`, `useDrawings.ts`, `useTrashHandlers.ts`, `MoveToTrashAlert.tsx`.
 
 **ERD create/save chain fix**: `createDiagram` sends `crypto.randomUUID()` as `uid`. `selectDiagram` uses `urlIdentifier` (UUID-preferring). Server save accepts numeric IDs + backfills `uid`. Server create persists `uid` from client.
 
@@ -96,11 +92,6 @@ CSS variables from shadcn (`var(--popover)`, `var(--popover-foreground)`) used i
 - Guest data export/import via IndexedDB `.json` file + `POST /api/guest/import` (NDJSON streaming, batched transactions).
 
 ## ERD Architecture
-
-### Data Structures
-- Entity: `{ id, name, x, y, color, columns: Column[] }` — React Flow `Node<Entity>`
-- Column: `{ id, name, type, is_pk, is_nullable, enum_values?, sort_order?, _is_fk? }`
-- Relationship: stored as React Flow `Edge<RelationData>` with `type: 'smoothstep'`
 
 ### Key Rules
 - **1 FK = max 1 PK**: one FK column can only point to one PK. Multiple FKs in same table → different tables allowed.
@@ -120,11 +111,6 @@ CSS variables from shadcn (`var(--popover)`, `var(--popover-foreground)`) used i
 
 ## Flowchart Architecture
 
-### Data Structures
-- Node: `{ id, type: 'flowchart', position, data: FlowchartNodeData { label, shape, color, section?, groupId? } }`
-- Edge: standard React Flow edge with `label`, `type: 'smoothstep'`
-- Shapes: oval, diamond, parallelogram, database, document, cloud, circle, rectangle
-
 ### Section/Group Feature
 - Start nodes have "Group Title" — stored as `section` in node data.
 - `groupId` auto-generated (`grp_quickstart`). AI context groups symbols by section via BFS from Start.
@@ -141,21 +127,6 @@ CSS variables from shadcn (`var(--popover)`, `var(--popover-foreground)`) used i
 - Position changes NOT blocked during drag (matched ERD pattern). Only filter `select` changes.
 - `setActionContextData` debounced 500ms during drag — prevents heavy syntax highlighting re-renders.
 - `emptySetRef` for stable Set reference — prevents unnecessary `memoizedNodes` recompute.
-
-## AIChatPanel Architecture
-
-Refactored from 833→358 lines into sub-components:
-```
-src/components/ai/
-├── AIChatPanel.tsx (358) — orchestrator
-├── ChatMessages.tsx (277) — message list, scroll effects, collapse/expand
-├── ChatInput.tsx (124) — textarea, send, action toggle pills
-├── AssistantMessageActions.tsx — content-aware buttons (Replace/Append/DB/Flowchart/Notes)
-├── CodeBlock.tsx (48) — Prism highlighting
-├── SessionItem.tsx (32)
-├── SelectionBar.tsx (28)
-└── MinimizedBar.tsx (22)
-```
 
 ## DB Mode Detection
 

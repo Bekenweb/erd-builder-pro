@@ -1,0 +1,181 @@
+Table organizations {
+  id uuid [pk]
+  name varchar(100)
+}
+
+Table users {
+  id uuid [pk]
+  organization_id uuid
+  manager_id uuid
+  name varchar(100)
+}
+
+Table roles {
+  id uuid [pk]
+  name varchar(60)
+}
+
+Table user_roles {
+  user_id uuid [pk]
+  role_id uuid [pk]
+}
+
+Table projects {
+  id uuid [pk]
+  organization_id uuid
+  owner_id uuid
+  name varchar(100)
+}
+
+Table project_members {
+  project_id uuid [pk]
+  user_id uuid [pk]
+  role_id uuid
+}
+
+Table documents {
+  id uuid [pk]
+  project_id uuid
+  author_id uuid
+  title varchar(200)
+}
+
+Table document_versions {
+  id uuid [pk]
+  document_id uuid
+  author_id uuid
+  version int
+  created_at timestamp
+}
+
+Table comments {
+  id uuid [pk]
+  document_id uuid
+  author_id uuid
+  parent_comment_id uuid
+  body text
+}
+
+Table tags {
+  id uuid [pk]
+  name varchar(50)
+}
+
+Table document_tags {
+  document_id uuid [pk]
+  tag_id uuid [pk]
+}
+
+Table categories {
+  id uuid [pk]
+  parent_id uuid
+  name varchar(100)
+}
+
+Table products {
+  id uuid [pk]
+  category_id uuid
+  name varchar(150)
+  price decimal(12,2)
+}
+
+Table customers {
+  id uuid [pk]
+  organization_id uuid
+  name varchar(100)
+}
+
+Table orders {
+  id uuid [pk]
+  customer_id uuid
+  created_by uuid
+  status varchar(30)
+}
+
+Table order_items {
+  id uuid [pk]
+  order_id uuid
+  product_id uuid
+  quantity int
+  unit_price decimal(12,2)
+}
+
+Table payments {
+  id uuid [pk]
+  order_id uuid
+  amount decimal(12,2)
+  status varchar(30)
+}
+
+Table shipments {
+  id uuid [pk]
+  order_id uuid
+  warehouse_id uuid
+  tracking_code varchar(100)
+}
+
+Table warehouses {
+  id uuid [pk]
+  name varchar(100)
+}
+
+Table inventory {
+  product_id uuid [pk]
+  warehouse_id uuid [pk]
+  quantity int
+}
+
+Table cycle_a {
+  id uuid [pk]
+  b_id uuid
+}
+
+Table cycle_b {
+  id uuid [pk]
+  c_id uuid
+}
+
+Table cycle_c {
+  id uuid [pk]
+  a_id uuid
+}
+
+Table standalone_settings {
+  id uuid [pk]
+  key varchar(100)
+  value text
+}
+
+Ref: users.organization_id > organizations.id
+Ref: users.manager_id > users.id
+Ref: user_roles.user_id > users.id
+Ref: user_roles.role_id > roles.id
+Ref: projects.organization_id > organizations.id
+Ref: projects.owner_id > users.id
+Ref: project_members.project_id > projects.id
+Ref: project_members.user_id > users.id
+Ref: project_members.role_id > roles.id
+Ref: documents.project_id > projects.id
+Ref: documents.author_id > users.id
+Ref: document_versions.document_id > documents.id
+Ref: document_versions.author_id > users.id
+Ref: comments.document_id > documents.id
+Ref: comments.author_id > users.id
+Ref: comments.parent_comment_id > comments.id
+Ref: document_tags.document_id > documents.id
+Ref: document_tags.tag_id > tags.id
+Ref: categories.parent_id > categories.id
+Ref: products.category_id > categories.id
+Ref: customers.organization_id > organizations.id
+Ref: orders.customer_id > customers.id
+Ref: orders.created_by > users.id
+Ref: order_items.order_id > orders.id
+Ref: order_items.product_id > products.id
+Ref: payments.order_id > orders.id
+Ref: shipments.order_id > orders.id
+Ref: shipments.warehouse_id > warehouses.id
+Ref: inventory.product_id > products.id
+Ref: inventory.warehouse_id > warehouses.id
+Ref: cycle_a.b_id > cycle_b.id
+Ref: cycle_b.c_id > cycle_c.id
+Ref: cycle_c.a_id > cycle_a.id

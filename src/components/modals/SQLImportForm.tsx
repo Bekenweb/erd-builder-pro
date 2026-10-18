@@ -6,6 +6,7 @@ import CodeMirror from '@uiw/react-codemirror';
 import { sql as sqlLang } from '@codemirror/lang-sql';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { parseSQLToERD } from '@/lib/sqlParser';
+import { separateTables, alignErdHandles } from '@/lib/erd-geometry';
 import { FileCode, Upload, AlertCircle, Loader2, Plus, ArrowRight, ArrowUpDown } from 'lucide-react';
 import { DraftType } from '@/types';
 import { BroadcastMessageType } from '@/hooks/useBroadcastChannel';
@@ -283,6 +284,10 @@ export function SQLImportForm({
         });
       }
 
+      updatedNodes = separateTables(updatedNodes);
+      const existingEdgeIds = new Set((edges || []).map(edge => edge.id));
+      const aligned = alignErdHandles(updatedNodes, updatedEdges.filter(edge => !existingEdgeIds.has(edge.id)));
+      updatedEdges.splice(0, updatedEdges.length, ...updatedEdges.filter(edge => existingEdgeIds.has(edge.id)), ...aligned);
       setNodes(updatedNodes);
       setEdges(updatedEdges);
 

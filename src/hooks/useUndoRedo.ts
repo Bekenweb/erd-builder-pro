@@ -13,7 +13,7 @@ export function useUndoRedo() {
 
   const takeSnapshot = useCallback((nodes: Node<any>[], edges: Edge[]) => {
     const snapshot: HistoryState = {
-      nodes: JSON.parse(JSON.stringify(nodes)),
+      nodes: JSON.parse(JSON.stringify(nodes.map(node => ({ ...node, dragging: false })))),
       edges: JSON.parse(JSON.stringify(edges)),
     };
     pastRef.current = [...pastRef.current, snapshot];
