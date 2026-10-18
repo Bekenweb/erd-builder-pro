@@ -191,4 +191,3 @@ export async function normalizeLegacyColumnIds(): Promise<void> {
     logger.warn({ err: err?.message }, "Failed to normalize ERD column ids (non-fatal)");
   }
 }
-

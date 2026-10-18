@@ -72,4 +72,3 @@ export async function createDbConnectTablesIfMissing(): Promise<void> {
     logger.warn({ err: err?.message }, "Failed to create DB Connect tables (non-fatal)");
   }
 }
-
