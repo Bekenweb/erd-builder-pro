@@ -46,6 +46,7 @@ import { ERD_REPOSITORY_APPLIED_EVENT, ERD_REPOSITORY_PREVIEW_EVENT, type Reposi
 import { erdToDBML } from '@/lib/dbml-converter';
 import { constrainTableChanges, tableSize } from '@/lib/erd-geometry';
 import { ERDRoutedEdge, ERDRoutingContext } from '@/components/diagram/ERDRoutedEdge';
+import { ERDEdgeLabels } from '@/components/diagram/ERDEdgeLabels';
 import { useSettledERDCanvasSnapshot } from '@/contexts/ERDCanvasContext';
 
 const nodeTypes = {
@@ -180,6 +181,9 @@ const ERDViewComponent = ({
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+  const handleEdgeMouseEnterLocal = useCallback((_: React.MouseEvent, edge: Edge) => setHoveredEdgeId(edge.id), []);
+  const handleEdgeMouseLeaveLocal = useCallback(() => setHoveredEdgeId(null), []);
   const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const edgeContextMenuAnchor = React.useMemo(() => edgeContextMenu ? {
     getBoundingClientRect: () => new DOMRect(edgeContextMenu.x, edgeContextMenu.y, 0, 0),
@@ -339,7 +343,7 @@ const ERDViewComponent = ({
   }, [pendingDiff]);
 
   const hasComments = Boolean(comments);
-  const styledEdges = React.useMemo(() => styleErdEdges(edges, allSelectedIds).map(edge => hasComments ? { ...edge, type: 'commentable' } : edge), [edges, allSelectedIds, hasComments]);
+  const styledEdges = React.useMemo(() => styleErdEdges(edges, allSelectedIds, hoveredEdgeId).map(edge => hasComments ? { ...edge, type: 'commentable' } : edge), [edges, allSelectedIds, hasComments, hoveredEdgeId]);
   const styledDiffEdges = React.useMemo(
     () => pendingDiff ? styleErdEdges(pendingDiff.diffEdges) : [],
     [pendingDiff],
@@ -819,6 +823,8 @@ const ERDViewComponent = ({
           onNodeClick={handleNodeClickLocal}
           onNodeDoubleClick={onNodeDoubleClick}
           onEdgeClick={onEdgeClick}
+          onEdgeMouseEnter={handleEdgeMouseEnterLocal}
+          onEdgeMouseLeave={handleEdgeMouseLeaveLocal}
           onEdgeContextMenu={comments && !pendingDiff ? handleEdgeContextMenuLocal : undefined}
           onPaneClick={handlePaneClickLocal}
           onMove={handleMoveLocal}
@@ -884,7 +890,12 @@ const ERDViewComponent = ({
   const routingNodes = pendingDiff ? diffNodesWithMode : nodes;
   const settledCanvas = useSettledERDCanvasSnapshot(React.useMemo(() => ({ nodes: routingNodes, edges }), [routingNodes, edges]));
   const obstacles = React.useMemo(() => settledCanvas.nodes.map(node => ({ id: node.id, ...node.position, ...tableSize(node) })), [settledCanvas.nodes]);
-  const routedContent = <ERDRoutingContext.Provider value={obstacles}>{content}</ERDRoutingContext.Provider>;
+  const activeEdgeId = hoveredEdgeId ?? edges.find(edge => edge.selected)?.id ?? null;
+  const routedContent = <ERDRoutingContext.Provider value={obstacles}>
+    <ERDEdgeLabels nodes={settledCanvas.nodes} edges={pendingDiff ? styledDiffEdges : settledCanvas.edges} tables={obstacles} activeId={activeEdgeId}>
+      {content}
+    </ERDEdgeLabels>
+  </ERDRoutingContext.Provider>;
   return comments ? <ERDCommentsProvider config={comments}>{routedContent}</ERDCommentsProvider> : routedContent;
 };
 
