@@ -205,14 +205,12 @@ export const MainHeader = React.memo(({
         </Breadcrumb>}
       </div>
 
-      <div className="flex shrink-0 items-center justify-center px-2">
-        {!isOnline && !isPublicView ? (
+      {!isOnline && !isPublicView && (
           <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-destructive/10 border border-destructive/20 text-destructive animate-in fade-in slide-in-from-top-1 duration-500">
             <div className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
             <span className="text-[10px] font-bold uppercase tracking-wider">Offline Mode: Navigation Disabled</span>
           </div>
-        ) : null}
-      </div>
+      )}
 
       <div className="flex shrink-0 items-center gap-1 pr-2 sm:pr-4">
         {!!location.pathname.match(/^\/(notes|diagrams|drawings|flowcharts)\/[^/]+$/) && (

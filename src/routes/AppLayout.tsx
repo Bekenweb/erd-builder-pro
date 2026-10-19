@@ -851,7 +851,7 @@ function AppLayoutInner({ root, session, mainAI, paired, onPairChange, onFocused
           breadcrumbLabel={breadcrumbLabel}
           noteContent={activeNote?.content}
           historyAvailable={Boolean(historyEntityType)}
-          discussionPanel={session ? <span ref={setDiscussionTarget} /> : discussionPanel}
+          discussionPanel={session ? <span ref={setDiscussionTarget} className="contents" /> : discussionPanel}
         /></FileSessionContext.Provider>
 
         {!isPublicView && !canEditActiveDocument && (

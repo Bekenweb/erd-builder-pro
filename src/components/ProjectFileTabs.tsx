@@ -1,3 +1,4 @@
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './ui/tooltip'
 import { createPortal } from 'react-dom'
 import { ProjectTabsContext } from '@/contexts/ProjectTabsContext'
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover'
@@ -325,7 +326,12 @@ export function ProjectFileTabs({ currentView, currentFile, host = false }: Prop
       </div>
 
       <Popover open={createOpen} onOpenChange={open => { setCreateOpen(open); if (!open) setNewName('') }}>
-        <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Create file" className="shrink-0"><Plus /></Button>} />
+        <TooltipProvider><Tooltip>
+          <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+            <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Create file"><Plus /></Button>} />
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Create file</TooltipContent>
+        </Tooltip></TooltipProvider>
         <PopoverContent align="end" className="w-72 max-w-[calc(100vw-1rem)] overflow-hidden p-0">
             <div className="max-h-56 overflow-y-auto p-1">
               {FEATURES.filter(feature => feature.id !== 'db-client').map(feature => {
