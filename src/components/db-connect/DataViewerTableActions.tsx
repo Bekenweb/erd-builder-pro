@@ -27,6 +27,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ContextMenuItem } from '@/components/ui/context-menu';
 import { DestructiveConfirmationField } from './DestructiveConfirmationField';
+import { quoteTableName } from './data-viewer-utils';
 
 type Props = {
   connectionId: number;
@@ -152,7 +153,7 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
     }
     if (includeContents) {
       for (const row of data.rows) {
-        parts.push(`INSERT INTO ${q(dbType, name)} (${cols.map(col => q(dbType, col)).join(', ')}) VALUES (${cols.map(col => sqlValue(row[col])).join(', ')});`);
+        parts.push(`INSERT INTO ${quoteTableName(dbType, item)} (${cols.map(col => q(dbType, col)).join(', ')}) VALUES (${cols.map(col => sqlValue(row[col])).join(', ')});`);
       }
     }
     return parts.join('\n');

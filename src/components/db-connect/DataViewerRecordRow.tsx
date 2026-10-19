@@ -21,7 +21,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { createColumnHelpers, displayCellValue, draftValue, formatRawCellValue } from './data-viewer-utils';
+import { createColumnHelpers, displayCellValue, draftValue, formatRawCellValue, quoteTableName } from './data-viewer-utils';
 import { DataViewerTableActions } from './DataViewerTableActions';
 
 const csvCell = (value: any) => {
@@ -100,7 +100,7 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
             : format === 'csv-header'
               ? [columns.join(','), ...rows.map(item => rowValues(item, columns).map(csvCell).join(','))].join('\n')
               : format === 'insert'
-                ? rows.map(item => `INSERT INTO "${activeTable}" (${columns.map(column => `"${column}"`).join(', ')}) VALUES (${rowValues(item, columns).map(sqlValue).join(', ')});`).join('\n')
+                ? rows.map(item => `INSERT INTO ${quoteTableName(dbType, tableSchema || { table_name: activeTable })} (${columns.map(column => `"${column}"`).join(', ')}) VALUES (${rowValues(item, columns).map(sqlValue).join(', ')});`).join('\n')
                 : rows.map(item => rowValues(item, columns).map(formatRawCellValue).join('\t')).join('\n');
     copyText(text);
   };

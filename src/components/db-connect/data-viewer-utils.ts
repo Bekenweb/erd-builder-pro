@@ -18,6 +18,14 @@ export function formatBytes(value: number | null | undefined) {
   return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unit]}`;
 }
 
+// table_name can be a schema-qualified key for PostgreSQL non-public schemas; SQL must quote schema and name separately.
+export function quoteTableName(dbType: string | null, table: { table_name: string; table_schema?: string; base_name?: string }) {
+  const quote = (name: string) => dbType === 'mysql' ? `\`${name.replace(/`/g, '``')}\`` : `"${name.replace(/"/g, '""')}"`;
+  return table.base_name && table.table_schema && table.base_name !== table.table_name
+    ? `${quote(table.table_schema)}.${quote(table.base_name)}`
+    : quote(table.table_name);
+}
+
 export function formatRawCellValue(value: any) {
   if (value === null) return 'NULL';
   if (value === undefined) return '';
@@ -107,7 +115,10 @@ export function submitValue(column: string, value: any, helpers: ReturnType<type
   if (helpers.isBooleanColumn(column)) return value === '' ? null : Number(value);
   if (helpers.isDateTimeColumn(column)) return String(value || '').replace('T', ' ');
   if (helpers.isDateColumn(column)) return datePart(value);
-  if (helpers.isNumericColumn(column) && value !== '') return Number(value);
+  if (helpers.isNumericColumn(column) && value !== '') {
+    // Keep exact integer/decimal text; Number() would round BIGINT and high-precision DECIMAL.
+    return /float|double|real|money/.test(helpers.columnType(column)) ? Number(value) : String(value).trim();
+  }
   if (/json/.test(helpers.columnType(column)) && value !== '') {
     try { return JSON.parse(value); } catch {}
   }

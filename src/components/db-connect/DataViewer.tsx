@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 import { useDataViewer } from '@/hooks/useDataViewer';
 import { useInlineRecordDrafts } from '@/hooks/useInlineRecordDrafts';
+import { useLeaveGuard } from '@/hooks/useLeaveGuard';
 import { useRecordEditor } from '@/hooks/useRecordEditor';
 import { useStructureEditor } from '@/hooks/useStructureEditor';
 import { DataViewerConfirmModal } from './DataViewerConfirmModal';
@@ -88,6 +89,7 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
   recordDirtyRef.current = recordEditor.isRecordDirty;
   selectedRowRef.current = recordEditor.selectedRow;
   structureDirtyRef.current = structureEditor.isDirty;
+  useLeaveGuard(recordDraftCount > 0 || recordEditor.isRecordDirty || structureEditor.isDirty, 'You have unsaved DB Client changes. Leave this page and discard them?');
   const warnUnsaved = useCallback(() => {
     if (recordDraftCountRef.current > 0) {
       toast.warning('Save or discard inline record changes first.');

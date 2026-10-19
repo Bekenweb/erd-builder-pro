@@ -9,6 +9,8 @@ import { AuthProvider } from './hooks/useAuth';
 import './index.css';
 import "@excalidraw/excalidraw/index.css";
 import { getApiBaseUrl, clearAuthToken } from './lib/api';
+// Side effect: its popstate listener must register before BrowserRouter's.
+import './hooks/useLeaveGuard';
 
 // Detect Tauri and add data attribute for CSS targeting
 if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {

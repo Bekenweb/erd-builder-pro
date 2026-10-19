@@ -10,8 +10,9 @@ import {
   buildRecordInsert,
   buildRecordUpdate,
   buildRecordWhere,
+  executeInTransaction,
   fetchTableInfo,
-  quoteIdentifier,
+  tableSqlFor,
   validateRecordValues,
 } from "./record-helpers.js";
 
@@ -73,7 +74,7 @@ export async function queryRecords(req: ExpressRequest, res: ExpressResponse) {
       let rows: Record<string, any>[] = [];
       let total = 0;
       const tableInfo = await fetchTableInfo(info.type, client, info.database, tableSchema);
-      const tableSql = quoteIdentifier(info.type, table);
+      const tableSql = tableSqlFor(info.type, tableSchema);
 
       if (info.type === "postgresql") {
         const countRes = await (client as any).query(`SELECT COUNT(*)::int AS total FROM ${tableSql}${where.sql}`, where.params);
@@ -111,10 +112,11 @@ export async function updateRecord(req: ExpressRequest, res: ExpressResponse) {
   const userId = (req as any).user.id;
   const { id } = req.params;
   const { table, key, values } = req.body;
+  const updateList = Array.isArray(req.body.updates) ? req.body.updates : [{ key, values }];
 
   if (!table?.trim()) return res.status(400).json({ error: "table name is required" });
-  if (!key || typeof key !== "object") return res.status(400).json({ error: "record key is required" });
-  if (!values || typeof values !== "object") return res.status(400).json({ error: "update values are required" });
+  if (updateList.length === 0 || updateList.some((item: any) => !item?.key || typeof item.key !== "object")) return res.status(400).json({ error: "record key is required" });
+  if (updateList.some((item: any) => !item.values || typeof item.values !== "object")) return res.status(400).json({ error: "update values are required" });
 
   try {
     const catalog = await catalogsService.findCatalogById(id, userId);
@@ -135,32 +137,31 @@ export async function updateRecord(req: ExpressRequest, res: ExpressResponse) {
       const allowedColumns = new Set(columnByName.keys());
       const pkColumns = (tableSchema.columns || []).filter((column: any) => column.is_pk).map((column: any) => column.name);
       if (pkColumns.length === 0) return res.status(400).json({ error: "Table has no primary key" });
-      for (const column of pkColumns) {
-        if (!(column in key)) return res.status(400).json({ error: `Missing primary key column: ${column}` });
+      for (const item of updateList) {
+        for (const column of pkColumns) {
+          if (!(column in item.key)) return res.status(400).json({ error: `Missing primary key column: ${column}` });
+        }
       }
 
-      let normalizedValues;
-      try {
-        normalizedValues = validateRecordValues(info.type, values, columnByName);
-      } catch (err: any) {
-        return res.status(400).json({ error: err.message || "Invalid update values" });
+      const tableSql = tableSqlFor(info.type, tableSchema);
+      const statements = [];
+      for (const item of updateList) {
+        let normalizedValues;
+        try {
+          normalizedValues = validateRecordValues(info.type, item.values, columnByName);
+        } catch (err: any) {
+          return res.status(400).json({ error: err.message || "Invalid update values" });
+        }
+        try {
+          const update = buildRecordUpdate(info.type, normalizedValues, item.key, allowedColumns);
+          statements.push({ sql: `UPDATE ${tableSql}${update.sql}`, params: update.params });
+        } catch (err: any) {
+          return res.status(400).json({ error: err.message || "Invalid update options" });
+        }
       }
 
-      let update;
-      try {
-        update = buildRecordUpdate(info.type, normalizedValues, key, allowedColumns);
-      } catch (err: any) {
-        return res.status(400).json({ error: err.message || "Invalid update options" });
-      }
-
-      const tableSql = quoteIdentifier(info.type, table);
-      if (info.type === "postgresql") {
-        await (client as any).query(`UPDATE ${tableSql}${update.sql}`, update.params);
-      } else {
-        await (client as any).execute(`UPDATE ${tableSql}${update.sql}`, update.params);
-      }
-
-      res.json({ success: true });
+      await executeInTransaction(info.type, client, statements);
+      res.json({ success: true, updated: statements.length });
     } finally {
       release();
     }
@@ -184,7 +185,7 @@ export async function createRecord(req: ExpressRequest, res: ExpressResponse) {
       const allowedColumns = new Set(columnByName.keys());
       const normalizedValues = validateRecordValues(info.type, values, columnByName, true);
       const insert = buildRecordInsert(info.type, normalizedValues, allowedColumns);
-      const tableSql = quoteIdentifier(info.type, table);
+      const tableSql = tableSqlFor(info.type, tableSchema);
       if (info.type === "postgresql") await (client as any).query(`INSERT INTO ${tableSql}${insert.sql}`, insert.params);
       else await (client as any).execute(`INSERT INTO ${tableSql}${insert.sql}`, insert.params);
       res.status(201).json({ success: true });
@@ -216,13 +217,13 @@ export async function deleteRecord(req: ExpressRequest, res: ExpressResponse) {
           if (!(column in item)) return res.status(400).json({ error: `Missing primary key column: ${column}` });
         }
       }
-      const tableSql = quoteIdentifier(info.type, table);
-      for (const item of keyList) {
+      const tableSql = tableSqlFor(info.type, tableSchema);
+      const statements = keyList.map(item => {
         const del = buildRecordDelete(info.type, item, allowedColumns);
-        if (info.type === "postgresql") await (client as any).query(`DELETE FROM ${tableSql}${del.sql}`, del.params);
-        else await (client as any).execute(`DELETE FROM ${tableSql}${del.sql}`, del.params);
-      }
-      res.json({ success: true });
+        return { sql: `DELETE FROM ${tableSql}${del.sql}`, params: del.params };
+      });
+      await executeInTransaction(info.type, client, statements);
+      res.json({ success: true, deleted: statements.length });
     } finally {
       release();
     }

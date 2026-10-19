@@ -67,6 +67,8 @@ export function erdColumnType(column: ColumnSchema): string {
 export interface TableSchema {
   table_name: string;
   table_schema?: string;
+  /** Unqualified name for SQL when table_name is schema-qualified (PostgreSQL non-public schemas). */
+  base_name?: string;
   comment?: string | null;
   columns: ColumnSchema[];
   foreign_keys?: ForeignKeySchema[];
