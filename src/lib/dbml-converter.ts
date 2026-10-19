@@ -4,6 +4,8 @@ import type { Entity } from '@/types';
 import { COLUMN_TYPES } from '@/lib/utils';
 import { normalizeColumnDefault, parseTypeModifiers, supportsColumnLength, supportsNumericPrecision } from '@/lib/column-metadata';
 import { parseSQLToERD } from '@/lib/sqlParser';
+import { autoLayoutERD } from './autoLayoutERD';
+import { alignErdHandles } from './erd-geometry';
 import {
   buildDBMLTableDefinitions,
   findEnumNamingErrors,
@@ -595,7 +597,8 @@ export function dbmlToERD(dbmlText: string): { nodes: Node<Entity>[]; edges: Edg
     if (ref) edge.data = { ...(edge.data || {}), on_delete: ref.onDelete, on_update: ref.onUpdate, constraint_name: ref.name };
   }
 
-  return result;
+  const laidOut = autoLayoutERD(result.nodes, result.edges);
+  return { nodes: laidOut, edges: alignErdHandles(laidOut, result.edges) };
 }
 
 const edgeColumnId = (handle?: string | null) => handle?.replace(/^col-/, '').replace(/-(source|target)(-[lr])?$/, '') || '';

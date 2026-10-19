@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { canvasLayout, dbSchemaToCanvas, keepsDbRelation } from '../db-client-schema';
 
 describe('dbSchemaToCanvas', () => {
+  it('preserves saved positions on reopen instead of applying a new layout', () => {
+    const { nodes } = dbSchemaToCanvas([
+      { table_name: 'a', columns: [{ name: 'id', type: 'integer' }], foreign_keys: [] },
+      { table_name: 'b', columns: [{ name: 'id', type: 'integer' }], foreign_keys: [] },
+    ], { nodes: { a: { x: 12, y: 34 }, b: { x: 280, y: 34 } } });
+    expect(nodes.map(n => n.position)).toEqual([{ x: 12, y: 34 }, { x: 280, y: 34 }]);
+  });
   it('marks only foreign-key endpoints needed by the read-only canvas', () => {
     const { nodes, edges } = dbSchemaToCanvas([
       { table_name: 'users', columns: [{ name: 'id', type: 'integer' }, { name: 'name', type: 'text' }], foreign_keys: [] },
@@ -13,7 +20,7 @@ describe('dbSchemaToCanvas', () => {
     expect(users.data.columns.find(column => column.name === 'id')).toMatchObject({ _is_ref: true, _is_fk: false });
     expect(users.data.columns.find(column => column.name === 'name')).toMatchObject({ _is_ref: false, _is_fk: false });
     expect(posts.data.columns.find(column => column.name === 'user_id')).toMatchObject({ _is_ref: false, _is_fk: true });
-    expect(edges[0]).toMatchObject({ sourceHandle: 'col-posts.user_id-source', targetHandle: 'col-users.id-target' });
+    expect(edges[0]).toMatchObject({ sourceHandle: 'col-posts.user_id-source-l', targetHandle: 'col-users.id-target-r' });
   });
 
   it('restores a connector side without changing its relation endpoints', () => {

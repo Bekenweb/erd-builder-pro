@@ -14,14 +14,13 @@ import {
   Position,
   ConnectionLineType,
   useReactFlow,
-  addEdge,
   reconnectEdge,
-  SmoothStepEdge,
   EdgeLabelRenderer,
   type EdgeProps,
+  type Connection,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Plus, Upload, Undo2, Redo2, LayoutGrid, RefreshCw, Database, Download, FolderGit2, MessageCircle } from 'lucide-react';
+import { MessageCircle } from 'lucide-react';
 
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
@@ -36,7 +35,7 @@ import { computeSchemaDiff, DiffResult } from '@/lib/schema-diff';
 import { mergeSchemaChanges } from '@/lib/schema-merge';
 import { useWorkspace } from '@/providers/WorkspaceContext';
 import { storedHasAnchor } from '@/lib/fileComments';
-import { apiFetch, isInstalledApp } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
 import { EyeOff, Monitor } from 'lucide-react';
 import { buildErdIndexes, erdColumnKey, erdSourceColumnKey } from '@/lib/erd-indexes';
 import { databaseColumnToERD } from '@/lib/column-metadata';
@@ -45,17 +44,22 @@ import { styleErdEdges } from '@/lib/erd-edge-style';
 import { ERD_HISTORY_PREVIEW_EVENT, type ErdHistoryPreview } from '@/lib/history-diagram';
 import { ERD_REPOSITORY_APPLIED_EVENT, ERD_REPOSITORY_PREVIEW_EVENT, type RepositoryPreview } from '@/lib/repository-preview';
 import { erdToDBML } from '@/lib/dbml-converter';
+import { constrainTableChanges, tableSize } from '@/lib/erd-geometry';
+import { ERDRoutedEdge, ERDRoutingContext } from '@/components/diagram/ERDRoutedEdge';
+import { ERDEdgeLabels } from '@/components/diagram/ERDEdgeLabels';
+import { useSettledERDCanvasSnapshot } from '@/contexts/ERDCanvasContext';
 
 const nodeTypes = {
   entity: EntityNode,
 };
+const fitViewOptions = { padding: 0.3 };
 
 function CommentableEdge(props: EdgeProps) {
   const offset = 16;
   const x = props.sourceX + (props.sourcePosition === Position.Right ? offset : props.sourcePosition === Position.Left ? -offset : 0);
   const y = props.sourceY + (props.sourcePosition === Position.Bottom ? offset : props.sourcePosition === Position.Top ? -offset : 0);
   return <>
-    <SmoothStepEdge {...props} />
+    <ERDRoutedEdge {...props} />
     <EdgeLabelRenderer>
       <div className="nodrag nopan pointer-events-auto absolute" style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px)` }}>
         <CommentMarker anchor={{ type: 'relationship', id: props.id }} />
@@ -64,7 +68,7 @@ function CommentableEdge(props: EdgeProps) {
   </>;
 }
 
-const edgeTypes = { commentable: CommentableEdge };
+const edgeTypes = { commentable: CommentableEdge, smoothstep: ERDRoutedEdge };
 
 interface ERDViewProps {
   nodes: Node<Entity>[];
@@ -114,7 +118,7 @@ interface ERDViewProps {
 }
 
 
-import { JumpToNode } from '../JumpToNode';
+import { ERDToolbar } from '@/components/diagram/ERDToolbar';
 
 const ERDViewComponent = ({
   nodes,
@@ -177,6 +181,9 @@ const ERDViewComponent = ({
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+  const handleEdgeMouseEnterLocal = useCallback((_: React.MouseEvent, edge: Edge) => setHoveredEdgeId(edge.id), []);
+  const handleEdgeMouseLeaveLocal = useCallback(() => setHoveredEdgeId(null), []);
   const [edgeContextMenu, setEdgeContextMenu] = useState<{ x: number; y: number; id: string } | null>(null);
   const edgeContextMenuAnchor = React.useMemo(() => edgeContextMenu ? {
     getBoundingClientRect: () => new DOMRect(edgeContextMenu.x, edgeContextMenu.y, 0, 0),
@@ -335,7 +342,8 @@ const ERDViewComponent = ({
     }));
   }, [pendingDiff]);
 
-  const styledEdges = React.useMemo(() => styleErdEdges(edges, allSelectedIds).map(edge => comments ? { ...edge, type: 'commentable' } : edge), [edges, allSelectedIds, comments]);
+  const hasComments = Boolean(comments);
+  const styledEdges = React.useMemo(() => styleErdEdges(edges, allSelectedIds, hoveredEdgeId).map(edge => hasComments ? { ...edge, type: 'commentable' } : edge), [edges, allSelectedIds, hasComments, hoveredEdgeId]);
   const styledDiffEdges = React.useMemo(
     () => pendingDiff ? styleErdEdges(pendingDiff.diffEdges) : [],
     [pendingDiff],
@@ -346,9 +354,13 @@ const ERDViewComponent = ({
     (changes: any[]) => {
       const dataChanges = changes.filter((change: any) => change.type !== 'select');
       if (dataChanges.length === 0) return;
-      onNodesChange(dataChanges);
+      const safeChanges = isReadOnly && !isProductionDb ? dataChanges : constrainTableChanges(dataChanges, nodesRef.current);
+      onNodesChange(safeChanges);
+      if (safeChanges !== dataChanges && dataChanges.some(change => change.type === 'dimensions')) {
+        requestAnimationFrame(() => { onNodeDragStop?.(); saveCanvasAfterNodeDrag(); });
+      }
     },
-    [onNodesChange],
+    [onNodesChange, isReadOnly, isProductionDb, onNodeDragStop, saveCanvasAfterNodeDrag],
   );
 
   // ─── Refs for callback stability ──────────────────────
@@ -395,6 +407,87 @@ const ERDViewComponent = ({
   }, [selectedNodeId, allSelectedIds, setActionContextData]);
   const takeSnapshotRef = React.useRef(takeSnapshot);
   takeSnapshotRef.current = takeSnapshot;
+  const handleNodeDragStartLocal = useCallback(() => {
+    takeSnapshotRef.current?.(nodesRef.current, edgesRef.current);
+  }, []);
+
+  // Stable reconnect handlers: React Flow passes these to every edge, so inline functions re-rendered all edges on each drag frame.
+  const handleReconnectStart = useCallback(() => { if (isProductionDb) setIsReconnecting(true); }, [isProductionDb]);
+  const handleReconnectEnd = useCallback(() => setIsReconnecting(false), []);
+  const handleReconnect = useCallback((oldEdge: Edge, connection: Connection) => {
+    if (pendingDiff) return;
+    if (!connection.sourceHandle || !connection.targetHandle) return;
+    if (isProductionDb) {
+      if (!keepsDbRelation(oldEdge, connection)) {
+        toast.info('Only the connector position can be changed');
+        return;
+      }
+      const nextEdges = reconnectEdge(oldEdge, connection, edgesRef.current);
+      setEdges(nextEdges);
+      onEdgeReconnect?.(nextEdges);
+      return;
+    }
+    if (isReadOnly) return;
+    const erdIndexes = buildErdIndexes(nodesRef.current, edgesRef.current);
+    const sourceNode = erdIndexes.nodesById.get(connection.source);
+    const targetNode = erdIndexes.nodesById.get(connection.target);
+    if (sourceNode && targetNode) {
+      const srcId = String(connection.sourceHandle).replace(/^col-/, '').replace(/-(source|target)(-(l|r))?$/, '');
+      const tgtId = String(connection.targetHandle).replace(/^col-/, '').replace(/-(source|target)(-(l|r))?$/, '');
+      const srcCol = erdIndexes.columnsByNodeAndId.get(erdColumnKey(sourceNode.id, srcId));
+      const tgtCol = erdIndexes.columnsByNodeAndId.get(erdColumnKey(targetNode.id, tgtId));
+      if (srcCol && tgtCol && srcCol.type !== tgtCol.type) {
+        toast.error('Type Mismatch', { description: `Cannot reconnect ${srcCol.type} to ${tgtCol.type}` });
+        return;
+      }
+
+      // ─── Duplicate relation check ────────────────────────────
+      if (extractColumnIdFromHandle && getRelationKey) {
+        const srcColId = extractColumnIdFromHandle(connection.sourceHandle);
+        const tgtColId = extractColumnIdFromHandle(connection.targetHandle);
+        if (srcColId && tgtColId) {
+          const srcName = srcCol?.name?.toLowerCase();
+          const tgtName = tgtCol?.name?.toLowerCase();
+          const cSrcNameKey = srcName ? `${connection.source}:${srcName}` : null;
+          const cTgtNameKey = tgtName ? `${connection.target}:${tgtName}` : null;
+
+          const newKey = `${[connection.source, connection.target].sort().join(':')}:${[srcColId, tgtColId].sort().join(':')}`;
+          const isDuplicateById = erdIndexes.edgesByRelationKey.get(newKey)?.some(edge => edge.id !== oldEdge.id) ?? false;
+          const relationNameKey = cSrcNameKey && cTgtNameKey
+            ? [cSrcNameKey, cTgtNameKey].sort().join('::')
+            : null;
+          const isDuplicateByName = relationNameKey
+            ? erdIndexes.edgesByRelationName.get(relationNameKey)?.some(edge => edge.id !== oldEdge.id) ?? false
+            : false;
+          const isDuplicate = isDuplicateById || isDuplicateByName;
+
+          if (isDuplicate) {
+            toast.info('Relation already exists');
+            return;
+          }
+        }
+      }
+
+      // ─── FK already related check ──────────────────────────
+      if (extractColumnIdFromHandle && srcCol?.name) {
+        const conflictingEdge = erdIndexes.edgesBySourceColumnName
+          .get(erdSourceColumnKey(sourceNode.data.name, srcCol.name))
+          ?.find(edge => edge.id !== oldEdge.id);
+        if (conflictingEdge) {
+          const targetTable = erdIndexes.nodesById.get(conflictingEdge.target);
+          toast.error('FK already related', {
+            description: `This column is already related to ${targetTable?.data.name || 'another table'}. One FK column can only point to one PK.`,
+            duration: 4000,
+          });
+          return;
+        }
+      }
+    }
+    takeSnapshotRef.current?.(nodesRef.current, edgesRef.current);
+    const newEds = reconnectEdge(oldEdge, connection, edgesRef.current);
+    const deduped = dedupeEdgesByRelation ? dedupeEdgesByRelation(newEds) : newEds;
+    setEdges(deduped);
+  }, [pendingDiff, isProductionDb, isReadOnly, setEdges, onEdgeReconnect, extractColumnIdFromHandle, getRelationKey, dedupeEdgesByRelation]);
 
   // ─── Visual Schema Diffing Callbacks ────────────────
   const startDiff = useCallback((origNodes: Node<Entity>[], origEdges: Edge[], propNodes: Node<Entity>[], propEdges: Edge[], options: { source?: 'proposal' | 'history' | 'repository' | 'repository-compare'; version?: number; sourceLabel?: string; commit?: string; dbmlSource?: string } = {}) => {
@@ -703,87 +796,13 @@ const ERDViewComponent = ({
         </div>
       )}
 
-      {!pendingDiff && (
-        <div className="absolute top-6 inset-x-0 z-10 flex justify-center px-3 pointer-events-none">
-          <div className="flex items-center gap-1.5 p-1.5 bg-background/95 backdrop-blur-md border border-border/50 rounded-2xl shadow-2xl pointer-events-auto max-w-full overflow-x-auto no-scrollbar">
-            <JumpToNode nodes={nodes} label="Table" />
-            {onRefresh && (
-              <Button onClick={onRefresh} disabled={isRefreshingDocument} variant="outline" size="icon" className="h-9 w-9 border-border hover:bg-muted bg-muted/50 cursor-pointer" title="Refresh to the latest version" aria-label="Refresh to the latest version">
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingDocument ? 'animate-spin' : ''}`} />
-              </Button>
-            )}
-            {!isReadOnly && <div className="w-px h-6 bg-border mx-0.5" />}
-            
-            {!isReadOnly && (
-              <Button onClick={addEntity} size="sm" className="h-9 px-3 sm:px-4 font-bold shadow-lg shadow-primary/20 cursor-pointer">
-                <Plus className="w-4 h-4 sm:mr-2" />
-                <span className="hidden sm:inline">Add Table</span>
-              </Button>
-            )}
-            {!isReadOnly && (
-              <Button onClick={onImportSQL} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer">
-                <Upload className="w-3.5 h-3.5 sm:mr-1.5" />
-                <span className="hidden sm:inline">Import SQL</span>
-              </Button>
-            )}
-            {!isProductionDb && !isReadOnly && (
-              <Button onClick={() => setRightPanelMode('dbml')} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer">
-                <Database className="w-3.5 h-3.5 sm:mr-1.5" />
-                <span className="hidden sm:inline">DBML</span>
-              </Button>
-            )}
-            {!isReadOnly && !isProductionDb && isInstalledApp() && (
-              <Button onClick={() => setRightPanelMode('repository')} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer">
-                <FolderGit2 className="w-3.5 h-3.5 sm:mr-1.5" />
-                <span className="hidden sm:inline">Repository</span>
-              </Button>
-            )}
-            {!isReadOnly && <Button onClick={onAutoLayout} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer">
-              <LayoutGrid className="w-3.5 h-3.5 sm:mr-1.5" />
-              <span className="hidden sm:inline">Auto Layout</span>
-            </Button>}
-
-            {isProductionDb && (
-              <Button onClick={handleSync} variant="outline" size="sm" className="h-9 px-3 border-amber-500/50 hover:bg-amber-500/10 bg-amber-500/5 text-amber-600 dark:text-amber-400 text-xs font-semibold cursor-pointer" disabled={isSyncing}>
-                <RefreshCw className={`w-3.5 h-3.5 sm:mr-1.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync'}</span>
-              </Button>
-            )}
-
-            {isProductionDb && (
-              <Button onClick={handleExportImage} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer" title="Export SVG">
-                <Download className="w-3.5 h-3.5 sm:mr-1.5" />
-                <span className="hidden sm:inline">Export SVG</span>
-              </Button>
-            )}
-
-            {!isReadOnly && (
-              <div className="flex items-center gap-0.5 ml-auto">
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={undo} 
-                  disabled={!canUndo}
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  title="Undo (Ctrl+Z)"
-                >
-                  <Undo2 className="w-4 h-4" />
-                </Button>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={redo} 
-                  disabled={!canRedo}
-                  className="h-8 w-8 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                  title="Redo (Ctrl+Y)"
-                >
-                  <Redo2 className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {!pendingDiff && <ERDToolbar
+        nodes={nodes} isReadOnly={isReadOnly} isProductionDb={isProductionDb}
+        addEntity={addEntity} onImportSQL={onImportSQL} onAutoLayout={onAutoLayout}
+        onRefresh={onRefresh} isRefreshingDocument={isRefreshingDocument}
+        setRightPanelMode={setRightPanelMode} handleSync={handleSync} isSyncing={isSyncing}
+        handleExportImage={handleExportImage} undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
+      />}
       {isLoading && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60 backdrop-blur-[1px] transition-opacity duration-150">
           <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
@@ -796,87 +815,16 @@ const ERDViewComponent = ({
           onNodesChange={handleNodesChangeLocal}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
-          onReconnectStart={() => { if (isProductionDb) setIsReconnecting(true); }}
-          onReconnectEnd={() => setIsReconnecting(false)}
-          onReconnect={(oldEdge, connection) => {
-            if (pendingDiff) return;
-            if (!connection.sourceHandle || !connection.targetHandle) return;
-            if (isProductionDb) {
-              if (!keepsDbRelation(oldEdge, connection)) {
-                toast.info('Only the connector position can be changed');
-                return;
-              }
-              const nextEdges = reconnectEdge(oldEdge, connection, edges);
-              setEdges(nextEdges);
-              onEdgeReconnect?.(nextEdges);
-              return;
-            }
-            if (isReadOnly) return;
-            const erdIndexes = buildErdIndexes(nodes, edges);
-            const sourceNode = erdIndexes.nodesById.get(connection.source);
-            const targetNode = erdIndexes.nodesById.get(connection.target);
-            if (sourceNode && targetNode) {
-              const srcId = String(connection.sourceHandle).replace(/^col-/, '').replace(/-(source|target)(-(l|r))?$/, '');
-              const tgtId = String(connection.targetHandle).replace(/^col-/, '').replace(/-(source|target)(-(l|r))?$/, '');
-              const srcCol = erdIndexes.columnsByNodeAndId.get(erdColumnKey(sourceNode.id, srcId));
-              const tgtCol = erdIndexes.columnsByNodeAndId.get(erdColumnKey(targetNode.id, tgtId));
-              if (srcCol && tgtCol && srcCol.type !== tgtCol.type) {
-                toast.error('Type Mismatch', { description: `Cannot reconnect ${srcCol.type} to ${tgtCol.type}` });
-                return;
-              }
-
-              // ─── Duplicate relation check ────────────────────────────
-              if (extractColumnIdFromHandle && getRelationKey) {
-                const srcColId = extractColumnIdFromHandle(connection.sourceHandle);
-                const tgtColId = extractColumnIdFromHandle(connection.targetHandle);
-                if (srcColId && tgtColId) {
-                  const srcName = srcCol?.name?.toLowerCase();
-                  const tgtName = tgtCol?.name?.toLowerCase();
-                  const cSrcNameKey = srcName ? `${connection.source}:${srcName}` : null;
-                  const cTgtNameKey = tgtName ? `${connection.target}:${tgtName}` : null;
-
-                  const newKey = `${[connection.source, connection.target].sort().join(':')}:${[srcColId, tgtColId].sort().join(':')}`;
-                  const isDuplicateById = erdIndexes.edgesByRelationKey.get(newKey)?.some(edge => edge.id !== oldEdge.id) ?? false;
-                  const relationNameKey = cSrcNameKey && cTgtNameKey
-                    ? [cSrcNameKey, cTgtNameKey].sort().join('::')
-                    : null;
-                  const isDuplicateByName = relationNameKey
-                    ? erdIndexes.edgesByRelationName.get(relationNameKey)?.some(edge => edge.id !== oldEdge.id) ?? false
-                    : false;
-                  const isDuplicate = isDuplicateById || isDuplicateByName;
-
-                  if (isDuplicate) {
-                    toast.info('Relation already exists');
-                    return;
-                  }
-                }
-              }
-
-              // ─── FK already related check ──────────────────────────
-              if (extractColumnIdFromHandle && srcCol?.name) {
-                const conflictingEdge = erdIndexes.edgesBySourceColumnName
-                  .get(erdSourceColumnKey(sourceNode.data.name, srcCol.name))
-                  ?.find(edge => edge.id !== oldEdge.id);
-                if (conflictingEdge) {
-                  const targetTable = erdIndexes.nodesById.get(conflictingEdge.target);
-                  toast.error('FK already related', {
-                    description: `This column is already related to ${targetTable?.data.name || 'another table'}. One FK column can only point to one PK.`,
-                    duration: 4000,
-                  });
-                  return;
-                }
-              }
-            }
-            takeSnapshot?.(nodes, edges);
-            const newEds = reconnectEdge(oldEdge, connection, edges);
-            const deduped = dedupeEdgesByRelation ? dedupeEdgesByRelation(newEds) : newEds;
-            setEdges(deduped);
-          }}
+          onReconnectStart={handleReconnectStart}
+          onReconnectEnd={handleReconnectEnd}
+          onReconnect={handleReconnect}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodeClick={handleNodeClickLocal}
           onNodeDoubleClick={onNodeDoubleClick}
           onEdgeClick={onEdgeClick}
+          onEdgeMouseEnter={handleEdgeMouseEnterLocal}
+          onEdgeMouseLeave={handleEdgeMouseLeaveLocal}
           onEdgeContextMenu={comments && !pendingDiff ? handleEdgeContextMenuLocal : undefined}
           onPaneClick={handlePaneClickLocal}
           onMove={handleMoveLocal}
@@ -887,6 +835,7 @@ const ERDViewComponent = ({
           nodesConnectable={!pendingDiff && (!isReadOnly || (isProductionDb && isReconnecting))}
           elementsSelectable={!pendingDiff && (!isReadOnly || isProductionDb)}
           edgesReconnectable={!pendingDiff && (!isReadOnly || isProductionDb)}
+          onNodeDragStart={handleNodeDragStartLocal}
           onNodeDragStop={handleNodeDragStopLocal}
           onMoveEnd={onMoveEnd}
           minZoom={0.1}
@@ -899,7 +848,7 @@ const ERDViewComponent = ({
         >
 
           <Background variant={BackgroundVariant.Lines} gap={50} size={1} color={bgColor} />
-          <Controls position="bottom-left" showInteractive={false} />
+          <Controls position="bottom-left" showInteractive={false} fitViewOptions={fitViewOptions} />
         </ReactFlow>
       </div>
 
@@ -938,7 +887,16 @@ const ERDViewComponent = ({
       />}
     </div>
   );
-  return comments ? <ERDCommentsProvider config={comments}>{content}</ERDCommentsProvider> : content;
+  const routingNodes = pendingDiff ? diffNodesWithMode : nodes;
+  const settledCanvas = useSettledERDCanvasSnapshot(React.useMemo(() => ({ nodes: routingNodes, edges }), [routingNodes, edges]));
+  const obstacles = React.useMemo(() => settledCanvas.nodes.map(node => ({ id: node.id, ...node.position, ...tableSize(node) })), [settledCanvas.nodes]);
+  const activeEdgeId = hoveredEdgeId ?? edges.find(edge => edge.selected)?.id ?? null;
+  const routedContent = <ERDRoutingContext.Provider value={obstacles}>
+    <ERDEdgeLabels nodes={settledCanvas.nodes} edges={pendingDiff ? styledDiffEdges : settledCanvas.edges} tables={obstacles} activeId={activeEdgeId}>
+      {content}
+    </ERDEdgeLabels>
+  </ERDRoutingContext.Provider>;
+  return comments ? <ERDCommentsProvider config={comments}>{routedContent}</ERDCommentsProvider> : routedContent;
 };
 
 // Custom comparator: skip function props to prevent unnecessary re-renders
@@ -950,6 +908,7 @@ function nodesEqual(a: Node<Entity>[], b: Node<Entity>[]): boolean {
   for (let i = 0; i < a.length; i++) {
     const na = a[i], nb = b[i];
     if (na.id !== nb.id || na.position?.x !== nb.position?.x || na.position?.y !== nb.position?.y) return false;
+    if (na.measured?.width !== nb.measured?.width || na.measured?.height !== nb.measured?.height || na.dragging !== nb.dragging) return false;
     if (na.selected !== nb.selected) return false;
     if (na.data?.name !== nb.data?.name || na.data?.color !== nb.data?.color) return false;
     const ca = na.data?.columns, cb = nb.data?.columns;

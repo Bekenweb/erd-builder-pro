@@ -1,13 +1,15 @@
 import { MarkerType, type Edge } from '@xyflow/react';
 
-export function styleErdEdges(edges: Edge[], selectedNodeIds: string[] = []): Edge[] {
+export function styleErdEdges(edges: Edge[], selectedNodeIds: string[] = [], hoveredEdgeId: string | null = null): Edge[] {
   const hasSelection = selectedNodeIds.length > 0;
+  // React Flow raises selected edges by 1000; hover must remain above them.
+  const hoverLayer = hoveredEdgeId ? Math.max(0, ...edges.map(edge => edge.zIndex ?? 0)) + 1001 : 0;
 
   return edges.map(edge => {
     const isConnectedToSelected = hasSelection && selectedNodeIds.some(
       id => edge.source === id || edge.target === id,
     );
-    const edgeColor = isConnectedToSelected || edge.selected
+    const edgeColor = isConnectedToSelected || edge.selected || edge.id === hoveredEdgeId
       ? 'var(--edge-selected)'
       : 'var(--edge-color)';
     const classes = [edge.className];
@@ -17,6 +19,7 @@ export function styleErdEdges(edges: Edge[], selectedNodeIds: string[] = []): Ed
 
     return {
       ...edge,
+      ...(edge.id === hoveredEdgeId ? { zIndex: hoverLayer } : {}),
       type: 'smoothstep' as const,
       style: {
         ...edge.style,

@@ -71,6 +71,7 @@ import { isRightPanelAvailable } from '@/lib/right-panel-availability';
 import { AIChatToggle } from '@/components/ai/AIChatToggle';
 import { getDbClientCache, setDbClientCache } from '@/hooks/useDataViewerHelpers';
 import { isFileCreator, readOnlyNotice } from '@/lib/fileOwnership';
+import { useSettledERDCanvas } from '@/contexts/ERDCanvasContext';
 import { getAppPageTitle } from '@/lib/app-page-title';
 
 // ── Inner component that uses AIAction context ──
@@ -201,7 +202,7 @@ function AppLayoutInner() {
     featureLabel, activeProjectName, activeFileName, hasActiveItem,
     activeNote, activeDrawing, activeFlowchart, activeDiagram,
     notes, diagrams, flowcharts, drawings,
-    nodes, edges, setNodes, setEdges,
+    setNodes, setEdges,
     activeDiagramId, takeSnapshot, saveDiagram,
     triggerDebouncedSync, broadcastMessage,
     setIsLocalSaving, viewportRef, lastLoadedDiagramIdRef,
@@ -239,6 +240,8 @@ function AppLayoutInner() {
     teamScopeVersion,
     isTeamScopeRefreshing,
   } = useWorkspace();
+  // Settled, not live: re-rendering the whole layout on every drag frame made dragging slow.
+  const { nodes, edges } = useSettledERDCanvas();
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [globalSearchResults, setGlobalSearchResults] = useState<any[]>([]);
   const [isGlobalSearchLoading, setIsGlobalSearchLoading] = useState(false);

@@ -1,4 +1,5 @@
-import { Edge, getSmoothStepPath, Node, Position } from '@xyflow/react';
+import { Edge, Node, Position } from '@xyflow/react';
+import { routeErdEdge } from './erd-routing';
 import type { Column, Entity } from '@/types';
 import { formatColumnType } from './column-metadata';
 
@@ -72,7 +73,9 @@ export function generateErdSVG(nodes: Node<Entity>[], edges: Edge[], theme: Them
     if (!source || !target) return '';
     const sourcePoint = point(source, edge.sourceHandle, true);
     const targetPoint = point(target, edge.targetHandle, false);
-    const [path] = getSmoothStepPath({ sourceX: sourcePoint.x, sourceY: sourcePoint.y, sourcePosition: sourcePoint.position, targetX: targetPoint.x, targetY: targetPoint.y, targetPosition: targetPoint.position });
+    const route = routeErdEdge(sourcePoint, targetPoint, sourcePoint.position === Position.Right, targetPoint.position === Position.Right,
+      boxes.map(box => ({ ...box.node.position, width: box.width, height: box.height })));
+    const path = route.map((p, i) => `${i ? 'L' : 'M'}${p.x},${p.y}`).join(' ');
     return `<path d="${path}" fill="none" stroke="${palette.edge}" stroke-width="2" marker-end="url(#arrow)"/>`;
   }).join('');
 

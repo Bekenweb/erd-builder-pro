@@ -26,6 +26,7 @@ import { localPersistence } from '@/lib/localPersistence';
 import { type Entity } from '@/types';
 import EntityNode, { NOTES_COMPANION_ENTITY_EDIT_EVENT } from '@/components/diagram/EntityNode';
 import { edgeToRelationship } from '@/lib/diagram-payload';
+import { constrainTableChanges, separateTables, alignErdHandles } from '@/lib/erd-geometry';
 import { autoLayoutERD } from '@/lib/autoLayoutERD';
 import { readSavedViewport } from '@/lib/erd-viewport';
 import { erdToDBML } from '@/lib/dbml-converter';
@@ -164,9 +165,10 @@ function DiagramCanvas({ document, previewSchema, previewKey }: {
   }, [approvedChangeIds, pendingDiff, persist]);
 
   const updateNodes = useCallback((changes: NodeChange<Node<Entity>>[]) => {
-    const next = applyNodeChanges(changes, nodesRef.current);
+    const constrained = constrainTableChanges(changes, nodesRef.current);
+    const next = applyNodeChanges(constrained, nodesRef.current);
     setNodes(next);
-    if (changes.some(change => change.type !== 'select' && change.type !== 'dimensions')) persist(next, edgesRef.current);
+    if (constrained.some(change => change.type !== 'select' && change.type !== 'dimensions')) persist(next, edgesRef.current);
   }, [persist]);
 
   const updateEdges = useCallback((changes: EdgeChange<Edge>[]) => {
@@ -260,7 +262,7 @@ function DiagramCanvas({ document, previewSchema, previewKey }: {
   const addEntity = useCallback(() => {
     const id = crypto.randomUUID();
     const entity: Entity = { id, name: 'new_table', x: 80, y: 80, color: '#6366f1', columns: [] };
-    const next = [...nodesRef.current, { id, type: 'entity', position: { x: 80, y: 80 }, data: entity }];
+    const next = separateTables([...nodesRef.current, { id, type: 'entity', position: { x: 80, y: 80 }, data: entity }]);
     setNodes(next);
     setSelectedNodeId(id);
     persist(next, edgesRef.current);
@@ -269,8 +271,10 @@ function DiagramCanvas({ document, previewSchema, previewKey }: {
   const autoLayout = useCallback(() => {
     if (nodesRef.current.length === 0) return;
     const next = autoLayoutERD(nodesRef.current, edgesRef.current);
+    const nextEdges = alignErdHandles(next, edgesRef.current);
     setNodes(next);
-    persist(next, edgesRef.current);
+    setEdges(nextEdges);
+    persist(next, nextEdges);
   }, [persist]);
 
   const handleMove = useCallback((_: unknown, viewport: typeof savedViewport) => {

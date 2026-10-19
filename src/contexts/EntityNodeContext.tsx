@@ -1,8 +1,8 @@
 import { createContext, useContext } from 'react';
 
 /**
- * The few workspace values a table node needs. WorkspaceContext also carries `nodes` and `edges`, so any
- * consumer of it re-renders on every drag frame; every table reading this small, stable context does not.
+ * The few workspace values a table node needs. WorkspaceContext is large and changes with many unrelated
+ * updates; every table reading this small, stable context skips those re-renders.
  */
 export interface EntityNodeContextValue {
   /** Public link, or a Team file owned by someone else. */

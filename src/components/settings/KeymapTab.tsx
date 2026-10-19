@@ -16,6 +16,7 @@ const keymaps = [
     ['Export note', '⌘ ⇧ E', 'Ctrl Shift E'], ['Import note', '⌘ ⇧ I', 'Ctrl Shift I'],
   ] },
   { title: 'ERD Builder', rows: [
+    ['Jump to Table', '⌘ ⇧ F', 'Ctrl Shift F'],
     ['Undo / redo', '⌘ Z / ⌘ ⇧ Z', 'Ctrl Z / Ctrl Y'],
     ['Add or remove from selection', '⌘ Click', 'Ctrl Click'],
   ] },

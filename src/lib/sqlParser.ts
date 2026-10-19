@@ -2,6 +2,8 @@ import { Entity, Column } from '../types';
 import { Node, Edge } from '@xyflow/react';
 import { COLUMN_TYPES } from './utils';
 import { parseTypeModifiers } from './column-metadata';
+import { autoLayoutERD } from './autoLayoutERD';
+import { alignErdHandles } from './erd-geometry';
 
 /**
  * Normalizes SQL data types to match the ERD tool's internal types.
@@ -747,9 +749,6 @@ export function parseSQLToERD(sql: string): { nodes: Node<Entity>[]; edges: Edge
 
   const parsed = parseSqlDdl(sql);
 
-  let xPos = 50;
-  let yPos = 50;
-
   // 1. Create Nodes
   for (const table of parsed.tables) {
     const tableId = `node-${Math.random().toString(36).substring(2, 11)}`;
@@ -785,22 +784,17 @@ export function parseSQLToERD(sql: string): { nodes: Node<Entity>[]; edges: Edge
     nodes.push({
       id: tableId,
       type: 'entity',
-      position: { x: xPos, y: yPos },
+      position: { x: 0, y: 0 },
       data: {
         id: tableId,
         name: table.name,
         columns,
         color: '#6b7280',
-        x: xPos,
-        y: yPos,
+        x: 0,
+        y: 0,
       },
     });
 
-    xPos += 350;
-    if (xPos > 1200) {
-      xPos = 50;
-      yPos += 400;
-    }
   }
 
   // Prisma migrations often add columns and constraints in later migration files.
@@ -888,5 +882,6 @@ export function parseSQLToERD(sql: string): { nodes: Node<Entity>[]; edges: Edge
     sourceColumns.forEach((column, index) => processRel(sourceTable, column, targetTable, targetColumns[index] || column));
   }
 
-  return { nodes, edges };
+  const laidOut = autoLayoutERD(nodes, edges);
+  return { nodes: laidOut, edges: alignErdHandles(laidOut, edges) };
 }

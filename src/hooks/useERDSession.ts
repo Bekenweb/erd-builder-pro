@@ -19,6 +19,7 @@ import { buildErdIndexes, erdColumnKey, erdSourceColumnKey } from '../lib/erd-in
 import { getForeignKeyConstraintName } from '../lib/diagram-payload';
 import { databaseColumnToERD } from '../lib/column-metadata';
 import { hasViewportChanged, readSavedViewport } from '../lib/erd-viewport';
+import { separateTables } from '../lib/erd-geometry';
 
 /** Fix double "col-" prefix from buggy parseSQLToERD output.
  *  Works for any column ID format: "col-xxx", UUID, etc. */
@@ -531,7 +532,7 @@ export function useERDSession(
     const newNode: Node<Entity> = { id, type: 'entity', position: { x: newEntity.x, y: newEntity.y }, data: newEntity };
     takeSnapshot(nodes, edges);
     setNodes((nds) => {
-      const next = nds.concat(newNode);
+      const next = separateTables(nds.concat(newNode));
       options?.broadcastNodeUpdate?.(newNode.id, newNode.data);
       return next;
     });
@@ -597,7 +598,7 @@ export function useERDSession(
         return [...eds];
       });
       
-      return newNodes;
+      return separateTables(newNodes);
     });
   }, [setNodes, setEdges, takeSnapshot, nodes, edges, options?.broadcastNodeUpdate, options?.broadcastEdgesUpdate]);
 
@@ -656,7 +657,7 @@ export function useERDSession(
 
     takeSnapshot(nodes, edges);
     setNodes((nds) => {
-      const next = nds.concat(newNode);
+      const next = separateTables(nds.concat(newNode));
       options?.broadcastNodeUpdate?.(newNode.id, newNode.data);
       return next;
     });
@@ -857,7 +858,6 @@ export function useERDSession(
   // Existing user-selected handles stay intact; only missing handles are filled in.
   const onNodeDragStop = useCallback(() => {
     const currentNodes = getNodes() as Node<Entity>[];
-    const currentEdges = getEdges();
     const currentNodesById = new Map(currentNodes.map(node => [node.id, node]));
     
     setEdges(eds => {
@@ -883,8 +883,8 @@ export function useERDSession(
       return deduped === eds ? eds : deduped;
     });
     
-    takeSnapshot(currentNodes as Node<Entity>[], currentEdges);
-  }, [setEdges, takeSnapshot, getNodes, getEdges, resolveEdgeHandles, dedupeEdgesByRelation]);
+    setSaveCounter(counter => counter + 1);
+  }, [setEdges, getNodes, resolveEdgeHandles, dedupeEdgesByRelation]);
 
   const handleMoveEnd = useCallback((event: MouseEvent | TouchEvent | null, v: Viewport) => {
     const previous = settledViewportRef.current;

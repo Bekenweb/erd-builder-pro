@@ -267,6 +267,10 @@
   filter: drop-shadow(0 0 4px var(--edge-selected));
 }
 
+.erd-edge-active .react-flow__edge-path {
+  stroke: var(--edge-selected) !important;
+}
+
 .react-flow__edge.selected .react-flow__edge-interaction {
   stroke: var(--edge-selected) !important;
   opacity: 0.2;

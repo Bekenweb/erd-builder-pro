@@ -1,8 +1,10 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { useWorkspace } from '@/providers/WorkspaceProvider';
+import { useERDCanvas } from '@/contexts/ERDCanvasContext';
 import { useNavigate, useOutletContext, useParams, useSearchParams } from 'react-router-dom';
 import { Database } from 'lucide-react';
 import { autoLayoutERD } from '@/lib/autoLayoutERD';
+import { alignErdHandles } from '@/lib/erd-geometry';
 
 import { ERDView } from '@/components/views/ERDView';
 import type { ERDCommentsConfig } from '@/components/diagram/ERDComments';
@@ -18,7 +20,7 @@ export function DiagramEditorRoute() {
   const navigate = useNavigate();
 
   const {
-    nodes, edges, setNodes, isPublicView, publicData, activeDiagramId, activeDiagram,
+    setNodes, isPublicView, publicData, activeDiagramId, activeDiagram,
     onNodesChange, onEdgesChange, onConnect,
     selectedNodeId, addEntity, undo, redo, canUndo, canRedo,
     takeSnapshot, onNodeDragStop, onMoveEnd,
@@ -31,6 +33,7 @@ export function DiagramEditorRoute() {
     pendingErdDiffTrigger,
     extractColumnIdFromHandle, getRelationKey, dedupeEdgesByRelation,
   } = ctx;
+  const { nodes, edges } = useERDCanvas();
 
   // Safety net: URL has id but context hasn't synced yet
   const processedUrlRef = useRef(false);
@@ -87,12 +90,14 @@ export function DiagramEditorRoute() {
   const handleAutoLayout = useCallback(() => {
     if (!nodes || nodes.length === 0) return;
     const repositions = autoLayoutERD(nodes, edges);
+    const nextEdges = alignErdHandles(repositions, edges);
     takeSnapshot?.(nodes, edges);
     setNodes(repositions);
-    void saveDiagram(repositions, edges, viewportRef.current)
+    ctx.setEdges(nextEdges);
+    void saveDiagram(repositions, nextEdges, viewportRef.current)
       .then(() => triggerDebouncedSync())
       .catch(error => console.error('Error saving ERD auto-layout:', error));
-  }, [nodes, edges, setNodes, takeSnapshot, saveDiagram, triggerDebouncedSync, viewportRef]);
+  }, [nodes, edges, setNodes, ctx.setEdges, takeSnapshot, saveDiagram, triggerDebouncedSync, viewportRef]);
 
   useEffect(() => {
     if (isPublicView || isTeamScopeRefreshing || !id) return;

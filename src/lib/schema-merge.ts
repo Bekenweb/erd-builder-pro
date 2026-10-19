@@ -1,6 +1,7 @@
 import { Edge, Node } from '@xyflow/react';
 import { Column, Entity } from '@/types';
 import { DiffResult, relationKey } from './schema-diff';
+import { separateTables } from './erd-geometry';
 
 const key = (value: string) => value.trim().toLowerCase();
 const columnIdFromHandle = (handle?: string | null) => handle?.replace(/^col-/, '').replace(/-(source|target)(-(l|r))?$/, '');
@@ -94,5 +95,5 @@ export function mergeSchemaChanges(
       if (remapped) finalEdges.push(remapped);
     }
   }
-  return { nodes: finalNodes, edges: finalEdges };
+  return { nodes: separateTables(finalNodes), edges: finalEdges };
 }

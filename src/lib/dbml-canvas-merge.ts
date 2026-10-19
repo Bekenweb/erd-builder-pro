@@ -1,6 +1,7 @@
 import type { Node, Edge } from '@xyflow/react';
 import type { Entity } from '@/types';
 import { findMatchingCanvasEdge } from '@/lib/dbml-converter';
+import { separateTables } from './erd-geometry';
 
 function remapCol(handle: string | null | undefined, colMap: Map<string, string>): string | null | undefined {
   if (!handle) return handle;
@@ -92,5 +93,5 @@ export function mergeDBMLCanvas(newNodes: Node<Entity>[], newEdges: Edge[], node
       };
     });
 
-  return { nodes: mergedNodes, edges: mergedEdges };
+  return { nodes: separateTables(mergedNodes), edges: mergedEdges };
 }
