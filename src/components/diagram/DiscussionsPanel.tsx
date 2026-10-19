@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type FormEvent } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { ArrowLeft, Check, CheckCircle2, Database, FileText, MessageCircle, MessageSquareText, MoreHorizontal, Network, PenTool, Pencil, Plus, RotateCcw, Send, Trash2, X, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { CommentAvatar, shortCommentTime } from "@/components/comments/CommentTh
 import { ReplyBox } from "@/components/comments/ReplyBox";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useFileSession } from '@/contexts/FileSessionContext';
 
 export type CollaborationFeatureType = "diagram" | "note" | "drawing" | "flowchart";
 export type CollaborationAnchorType = "general" | "table" | "relationship" | "block" | "shape" | "point";
@@ -70,7 +71,7 @@ function DiscussionTextarea({ value, onChange, className, ...props }: Discussion
   }, [value]);
 
   return (
-    <Textarea
+    <Textarea data-comment-draft
       {...props}
       ref={textarea}
       rows={1}
@@ -421,6 +422,8 @@ export function DiscussionsPanel({
   /** A Project Viewer reads threads but cannot start, reply to, resolve or edit them (COL-004). */
   readOnly?: boolean;
 }) {
+  const fileSession = useFileSession();
+  const panelId = useId();
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"discussions" | "comments">("discussions");
   const isCommentRail = activeTab === "comments";
@@ -736,6 +739,7 @@ export function DiscussionsPanel({
     if (!next && (pendingDelete || confirmDiscard)) return;
     // The thread actions menu renders in its own portal; pressing an item there is not an outside click.
     const target = details?.event?.target;
+    if (!next && fileSession && details?.reason === 'outside-press' && target instanceof Element && !fileSession.host.current?.contains(target)) return;
     if (!next && details?.reason === "outside-press" && target instanceof Element
       && target.closest('[data-slot="dropdown-menu-content"]')) return;
     if (!next && hasUnsavedText) { setConfirmDiscard(true); return; }
@@ -985,7 +989,7 @@ export function DiscussionsPanel({
   const description = activeTab === "comments"
     ? isCommentRail ? `Latest activity on ${fileContext.label}` : `Comments on ${fileContext.label}`
     : relatedFile ? `Related to ${relatedFile}` : screen === "list" ? "All project discussions" : "Project discussion";
-  const descriptionId = isCommentRail ? "erd-comments-description" : "erd-discussions-description";
+  const descriptionId = `${panelId}-description`;
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -1005,11 +1009,16 @@ export function DiscussionsPanel({
         }
       />
       <PopoverContent
-        side="left"
-        align="start"
+        anchor={fileSession ? () => {
+          const host = fileSession.host.current;
+          if (!host) return null;
+          return { contextElement: host, getBoundingClientRect: () => { const rect = host.getBoundingClientRect(); return new DOMRect(rect.right - 8, rect.top + 8, 0, 0); } };
+        } : undefined}
+        side={fileSession ? 'bottom' : 'left'}
+        align={fileSession ? 'end' : 'start'}
         sideOffset={8}
         data-discussions-panel=""
-        className="flex h-[min(42rem,calc(100svh-5rem))] w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0"
+        className={cn("flex h-[min(42rem,calc(100svh-5rem))] w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0", fileSession && 'max-h-(--available-height)')}
         aria-describedby={descriptionId}
       >
         <div className="shrink-0 border-b border-border px-3 py-2">
@@ -1171,7 +1180,7 @@ export function DiscussionsPanel({
               </div>}
               {threadError && <p role="alert" className="text-sm text-destructive">{threadError}</p>}
             </div>
-            <DiscussionComposer id="collaboration-message" value={draft} onChange={setDraft} onSubmit={submitThread} placeholder={activeTab === "comments" ? "Write a comment..." : "Write a question or design decision..."} disabled={sending} submitLabel={sending ? "Sending…" : activeTab === "comments" ? "Add comment" : "Start discussion"} />
+            <DiscussionComposer id={`${panelId}-composer`} value={draft} onChange={setDraft} onSubmit={submitThread} placeholder={activeTab === "comments" ? "Write a comment..." : "Write a question or design decision..."} disabled={sending} submitLabel={sending ? "Sending…" : activeTab === "comments" ? "Add comment" : "Start discussion"} />
           </div>
         )}
 

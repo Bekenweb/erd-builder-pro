@@ -1,4 +1,5 @@
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
+import { useEditorActive } from '@/contexts/FileSessionContext';
 import {
   ReactFlow,
   Controls,
@@ -75,6 +76,7 @@ export const FlowchartView = React.memo(({
 }: FlowchartViewProps) => {
   // ── Hooks FIRST (before any conditional return — Rule of Hooks) ──
   const { registerContentHandler, setActionContextData } = useAIAction();
+  const editorActive = useEditorActive();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowchartNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -360,6 +362,7 @@ export const FlowchartView = React.memo(({
   // Keyboard shortcut: Delete/Backspace to remove selected node or edge
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!editorActive()) return;
       if (isReadOnly) return;
       const target = e.target as HTMLElement;
       // Skip if typing in input/textarea OR inside SearchableTypeSelect dropdown
@@ -836,6 +839,7 @@ export const FlowchartView = React.memo(({
 
       <div className="flex-1 w-full h-full relative">
         <ReactFlow
+          id={activeFlowchartId ? `flowchart-${activeFlowchartId}` : undefined}
           nodes={memoizedNodes}
           edges={memoizedEdges}
           onNodesChange={handleNodesChange}

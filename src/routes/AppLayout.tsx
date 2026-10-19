@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { ProjectTabsContext } from '@/contexts/ProjectTabsContext';
+import { FileWorkspace } from '@/components/FileWorkspace';
+import { paneUrl } from '@/lib/file-panes';
+import type { FileSession } from '@/components/NativeFileSession';
+import { WorkspaceContext, type WorkspaceContextValue } from '@/providers/WorkspaceContext';
+import { AIActionScope, type AIActionContextValue } from '@/contexts/AIActionContext';
+import { ERDCanvasProvider, SettledERDCanvasProvider } from '@/contexts/ERDCanvasContext';
+import { FileSessionContext } from '@/contexts/FileSessionContext';
 import { cn } from '@/lib/utils';
 import { flushWorkspaceChanges } from '@/lib/workspace-save';
 import { toast } from 'sonner';
@@ -117,13 +125,15 @@ function entitySchemaKey(entity: Entity): string {
   });
 }
 
-function AppLayoutInner() {
+function AppLayoutInner({ root, session, mainAI, paired, onPairChange, onFocusedSession }: { root: WorkspaceContextValue; session: FileSession | null; mainAI: AIActionContextValue; paired: boolean; onPairChange: (paired: boolean) => void; onFocusedSession: (session: FileSession | null) => void }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const [tabsTarget, setTabsTarget] = useState<HTMLDivElement | null>(null);
   const [propertiesEntityId, setPropertiesEntityId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const [isExportAllOpen, setIsExportAllOpen] = useState(false);
+  const [discussionTarget, setDiscussionTarget] = useState<HTMLSpanElement | null>(null);
   const [activeDbClient, setActiveDbClient] = useState<any>(null);
   const [dbmlContent, setDbmlContent] = useState('');
   const dbmlContentRef = useRef('');
@@ -138,7 +148,7 @@ function AppLayoutInner() {
 
   // ─── Derive AI entity context from current route ─────
   const entityContext = useMemo(() => {
-    const m = location.pathname.match(/^\/(notes|diagrams|flowcharts|drawings|db-client)\/([^/]+)$/);
+    const m = (session ? paneUrl(session.file).split('?')[0] : location.pathname).match(/^\/(notes|diagrams|flowcharts|drawings|db-client)\/([^/]+)$/);
     if (!m) return null;
     const typeMap: Record<string, string> = {
       notes: 'note',
@@ -148,7 +158,7 @@ function AppLayoutInner() {
       'db-client': 'dbClient',
     };
     return { entityType: typeMap[m[1]], entityUid: m[2] };
-  }, [location.pathname]);
+  }, [location.pathname, session?.file.type, session?.file.uid]);
   const isActiveDiagramContext = entityContext?.entityType === 'diagram';
   const historyEntityType: HistoryEntityType | null = entityContext?.entityType === 'diagram'
     ? 'diagrams'
@@ -800,11 +810,14 @@ function AppLayoutInner() {
         />
       )}
 
-      <SidebarInset className={cn(
+      <ProjectTabsContext.Provider value={tabsTarget}><SidebarInset className={cn(
         isPublicView ? "w-full" : "",
         rightPanelOpen && "mr-90 transition-[margin] duration-200"
       )}>
-        <MainHeader
+        <FileSessionContext.Provider value={session?.scope ?? null}><MainHeader
+          tabsRef={setTabsTarget}
+          documentPath={session ? paneUrl(session.file).split('?')[0] : undefined}
+          sidebarDisabled={paired}
           featureLabel={featureLabel}
           activeProjectName={entityContext?.entityType === 'dbClient' ? activeDbClient?.project?.name : activeProjectName}
           activeFileName={entityContext?.entityType === 'dbClient' ? breadcrumbLabel || '' : activeFileName}
@@ -838,8 +851,8 @@ function AppLayoutInner() {
           breadcrumbLabel={breadcrumbLabel}
           noteContent={activeNote?.content}
           historyAvailable={Boolean(historyEntityType)}
-          discussionPanel={discussionPanel}
-        />
+          discussionPanel={session ? <span ref={setDiscussionTarget} /> : discussionPanel}
+        /></FileSessionContext.Provider>
 
         {!isPublicView && !canEditActiveDocument && (
           <div className="mx-4 mt-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm" role="status">
@@ -863,7 +876,7 @@ function AppLayoutInner() {
               <p className="mt-4 text-sm font-medium text-muted-foreground">Loading workspace…</p>
             </div>
           ) : (
-            <Outlet key={teamScopeVersion} context={teamState} />
+            <FileWorkspace root={root} mainAI={mainAI} teamState={teamState} discussionTarget={discussionTarget} onFocusedSession={onFocusedSession} onPairChange={onPairChange}><Outlet key={teamScopeVersion} context={teamState} /></FileWorkspace>
           )}
         </div>
 
@@ -1191,24 +1204,45 @@ function AppLayoutInner() {
             onClick={() => setRightPanelMode('chat')}
           />
         )}
-      </SidebarInset>
+      </SidebarInset></ProjectTabsContext.Provider>
     </>
   );
 }
 
 // ── Root layout: providers wrap inner content ──
 
+function FileSessionShell({ paired, onPairChange }: { paired: boolean; onPairChange: (paired: boolean) => void }) {
+  const root = useWorkspace();
+  const defaultAI = useAIAction();
+  const defaultCanvas = useSettledERDCanvas();
+  const [session, setSession] = useState<FileSession | null>(null);
+  const workspace = useMemo(() => session ? {
+    ...session.workspace,
+    setIsSettingsOpen: root.setIsSettingsOpen, setSettingsTab: root.setSettingsTab,
+    refreshTeamScope: root.refreshTeamScope, teamScopeVersion: root.teamScopeVersion,
+    isTeamScopeRefreshing: root.isTeamScopeRefreshing,
+    flushPendingSaves: root.flushPendingSaves, handleLogout: root.handleLogout,
+  } : root, [session, root]);
+  const ai = useMemo(() => session ? { ...session.ai, rightPanelMode: defaultAI.rightPanelMode, setRightPanelMode: defaultAI.setRightPanelMode } : defaultAI, [session, defaultAI]);
+  return <WorkspaceContext.Provider value={workspace}><AIActionScope value={ai}>
+    <ERDCanvasProvider value={session?.canvas ?? defaultCanvas}><SettledERDCanvasProvider value={session?.canvas ?? defaultCanvas}>
+      <AppLayoutInner root={root} session={session} mainAI={defaultAI} paired={paired} onPairChange={onPairChange} onFocusedSession={setSession} />
+    </SettledERDCanvasProvider></ERDCanvasProvider>
+  </AIActionScope></WorkspaceContext.Provider>;
+}
+
 export function AppLayout() {
   const sidebar = useAutoCollapseSidebar();
+  const [paired, setPaired] = useState(false);
   return (
     <SidebarProvider
-      open={sidebar.open}
+      open={paired ? false : sidebar.open}
       onOpenChange={sidebar.onOpenChange}
       className="h-svh overflow-hidden"
       style={{ "--sidebar-width": "320px" } as React.CSSProperties}
     >
       <AIActionProvider>
-        <AppLayoutInner />
+        <FileSessionShell paired={paired} onPairChange={setPaired} />
       </AIActionProvider>
     </SidebarProvider>
   );

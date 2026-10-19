@@ -1,5 +1,8 @@
+import { useState } from 'react';
+import { CalculationGuide } from './editor/panels/CalculationGuide';
 import { 
-  MoreHorizontal, 
+  MoreHorizontal,
+  Calculator,
   Share2, 
   Link2, 
   Trash2, 
@@ -26,6 +29,7 @@ import { toast } from "sonner";
 
 interface NavActionsMenuProps {
   onShare?: () => void;
+  onCopyPath?: () => void;
   onRename?: () => void;
   onDelete?: () => void;
   onDuplicate?: () => void;
@@ -50,6 +54,7 @@ interface NavActionsMenuProps {
 
 export const NavActionsMenu = ({
   onShare,
+  onCopyPath,
   onRename,
   onDelete,
   onDuplicate,
@@ -69,6 +74,8 @@ export const NavActionsMenu = ({
   onRefresh,
   isRefreshing = false,
 }: NavActionsMenuProps) => {
+
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const stripHtml = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&[^;]+;/g, ' ').trim();
 
@@ -108,6 +115,7 @@ export const NavActionsMenu = ({
       <DropdownMenu>
         <DropdownMenuTrigger render={
           <Button 
+            aria-label="Actions"
             variant="ghost" 
             size="sm" 
             className="h-8 text-muted-foreground hover:bg-muted/80 hover:text-foreground hover:shadow-sm active:scale-95 transition-all duration-200"
@@ -127,6 +135,7 @@ export const NavActionsMenu = ({
             </DropdownMenuItem>
           ) : (
             <>
+              {onCopyPath && <DropdownMenuItem onClick={onCopyPath}><Copy className="text-muted-foreground" /><span>Copy Path</span></DropdownMenuItem>}
               {onShare && (
                 <DropdownMenuItem 
                   disabled={!isOnline} 
@@ -232,8 +241,9 @@ export const NavActionsMenu = ({
           {documentType === 'notes' && !isPublicView && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem 
-                disabled={!isOnline} 
+              <DropdownMenuItem onClick={() => setGuideOpen(true)}><Calculator className="text-muted-foreground" /><span>Calculation Guide</span></DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!isOnline}
                 onClick={onCopyMarkdown}
                 className="gap-2 cursor-pointer flex items-center"
               >
@@ -308,6 +318,7 @@ export const NavActionsMenu = ({
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {documentType === 'notes' && <CalculationGuide open={guideOpen} onOpenChange={setGuideOpen} />}
     </div>
   );
 };

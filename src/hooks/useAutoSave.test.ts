@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAutoSave, type UseAutoSaveParams } from './useAutoSave';
+import { flushWorkspaceEditors, PANE_FLUSH_CHILDREN } from '@/lib/file-panes';
 
 vi.mock('react', () => ({ useEffect: vi.fn(), useRef: (value: unknown) => ({ current: value }) }));
 
@@ -18,6 +19,29 @@ function params(view: string): UseAutoSaveParams {
 
 describe('SH-002 pending local save', () => {
   beforeEach(() => vi.spyOn(console, 'warn').mockImplementation(() => {}));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([true, false])('COL-006 saves the active panels without writing the shell snapshot (shell dirty: %s)', async dirty => {
+    const state = params('notes');
+    state.isLocalSavingRef.current = dirty;
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    const savePane = vi.fn().mockResolvedValue(undefined);
+    target.addEventListener(PANE_FLUSH_CHILDREN, event => (event as CustomEvent).detail.push(savePane()));
+    await flushWorkspaceEditors(useAutoSave(state).flushPendingSaves);
+    expect(savePane).toHaveBeenCalledOnce();
+    expect(state.saveNote).not.toHaveBeenCalled();
+    expect(state.syncDrafts).not.toHaveBeenCalled();
+  });
+
+  it('COL-006 refuses navigation if an open panel cannot save', async () => {
+    const state = params('notes');
+    const target = new EventTarget();
+    vi.stubGlobal('window', target);
+    target.addEventListener(PANE_FLUSH_CHILDREN, event => (event as CustomEvent).detail.push(Promise.reject(new Error('Panel save failed'))));
+    await expect(flushWorkspaceEditors(useAutoSave(state).flushPendingSaves)).rejects.toThrow('Panel save failed');
+    expect(state.saveNote).not.toHaveBeenCalled();
+  });
 
   it.each(['erd', 'notes', 'drawings', 'flowchart'])('preserves pending state when %s persistence fails', async view => {
     const state = params(view);

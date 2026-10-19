@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ effects: [] as Array<() => void | (() => void)> }));
+const mocks = vi.hoisted(() => ({ effects: [] as Array<() => void | (() => void)>, active: true }));
 vi.mock('react', () => ({ useEffect: (effect: () => void) => mocks.effects.push(effect) }));
+vi.mock('@/contexts/FileSessionContext', () => ({ useEditorActive: () => () => mocks.active }));
 import { useJumpToTableShortcut } from './useJumpToTableShortcut';
 
 const add = vi.fn(), remove = vi.fn(), open = vi.fn();
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.effects = [];
+  vi.clearAllMocks(); mocks.effects = []; mocks.active = true;
   vi.stubGlobal('window', { addEventListener: add, removeEventListener: remove });
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -24,6 +25,15 @@ function key(overrides: Record<string, unknown> = {}) {
 }
 
 describe('SH-004 Jump to Table Find shortcut', () => {
+  it('opens search only for the focused editor in a two-file workspace', () => {
+    const { handle } = setup('Win32');
+    mocks.active = false;
+    handle(key());
+    expect(open).not.toHaveBeenCalled();
+    mocks.active = true;
+    handle(key());
+    expect(open).toHaveBeenCalledOnce();
+  });
   it.each([['MacIntel', '⇧⌘F', true, false], ['Win32', 'Ctrl+Shift+F', false, true], ['Linux x86_64', 'Ctrl+Shift+F', false, true]])(
     'opens table search and prevents browser Find on %s', (platform, label, metaKey, ctrlKey) => {
       const { shortcut, handle, cleanup } = setup(platform);

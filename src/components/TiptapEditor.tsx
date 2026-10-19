@@ -61,6 +61,7 @@ import { FlowchartFromJsonDialog } from '@/components/ai/FlowchartFromJsonDialog
 import { CODE_BLOCK_CONVERT_EVENT, type CodeBlockConversionDetail } from './editor/extensions/ExecutableCodeBlock';
 import { openNotesCompanion } from './editor/extensions/CompanionReference';
 import { useNoteCommentAnchor } from '@/hooks/useNoteCommentAnchor';
+import { NOTE_PANE_SNAPSHOT } from '@/lib/file-panes';
 import { NoteCommentsLayer } from '@/components/notes/NoteCommentsLayer';
 import type { CommentFileRef } from '@/lib/fileComments';
 
@@ -666,6 +667,19 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
 
   // Debounce ref for onChange — prevents cascading re-renders on every keystroke
   const onChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!editor || isReadOnly) return;
+    const snapshot = (event: Event) => {
+      const detail = (event as CustomEvent<{ uid: string; content: string | null }>).detail;
+      if (detail.uid !== documentUid) return;
+      detail.content = editor.getHTML();
+      rememberLocalContent(detail.content);
+      if (onChangeTimeoutRef.current) clearTimeout(onChangeTimeoutRef.current);
+      onChangeTimeoutRef.current = null;
+    };
+    window.addEventListener(NOTE_PANE_SNAPSHOT, snapshot);
+    return () => window.removeEventListener(NOTE_PANE_SNAPSHOT, snapshot);
+  }, [editor, isReadOnly, documentUid, rememberLocalContent]);
   const headingUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { requestCommentAtBlock, requestCommentAtSelection } = useNoteCommentAnchor({
     editor,
@@ -807,7 +821,7 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
   };
 
   return (
-    <div className="flex flex-col h-full bg-background text-foreground overflow-hidden">
+    <div className="relative flex min-w-0 flex-col h-full bg-background text-foreground overflow-hidden">
       <input
         type="file"
         id="tiptap-image-upload"
@@ -817,6 +831,7 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
         className="hidden"
       />
 
+      <DocumentOutline headings={headings} scrollToHeading={scrollToHeading} />
       <div
         ref={(element) => { scrollContainerRef.current = element; setScrollElement(element); }}
         className={`flex-1 overflow-y-auto overflow-x-visible custom-scrollbar bg-background relative ${compactLayout ? 'px-2 sm:px-3' : 'px-4 sm:px-6 md:px-12'}`}
@@ -836,7 +851,6 @@ export function TiptapEditor({ content, onChange, isReadOnly = false, disableAIS
           className={`mx-auto my-0 min-h-[calc(100vh-200px)] bg-card border-x border-b sm:border border-border/40 shadow-none rounded-none sm:rounded-xl relative tiptap-editor-lined ${compactLayout ? 'max-w-none sm:my-3 p-4 sm:p-7' : 'max-w-4xl sm:my-6 p-4 sm:p-16'}`}
         >
 
-          <DocumentOutline headings={headings} scrollToHeading={scrollToHeading} side={commentsOn && commentsWide ? 'left' : 'right'} />
 
           {editor && !isReadOnly && (
             <>

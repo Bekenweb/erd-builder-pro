@@ -1,4 +1,6 @@
 import { fileAccessRole, isFileViewer } from '@/lib/fileOwnership';
+import { useEditorActive, useFileSession } from '@/contexts/FileSessionContext';
+import { flushWorkspaceEditors } from '@/lib/file-panes';
 import { EntityNodeProvider } from '@/contexts/EntityNodeContext';
 import React, {
   useState, useCallback, useEffect, useMemo, useRef,
@@ -108,6 +110,8 @@ export function WorkspaceProvider({
   setIsPublicView: _setIsPublicView,
   handleLogout: _handleLogout,
 }: WorkspaceProviderProps) {
+  const fileSession = useFileSession();
+  const editorActive = useEditorActive();
   const navigate = useNavigate();
   const location = useLocation();
   const pathnameRef = useRef(location.pathname);
@@ -700,6 +704,7 @@ export function WorkspaceProvider({
   themeRef.current = theme;
 
   useEffect(() => {
+    if (fileSession) return;
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
     const applyTheme = (resolved: 'light' | 'dark') => {
@@ -731,10 +736,11 @@ export function WorkspaceProvider({
     };
     mediaQuery.addEventListener('change', handler);
     return () => mediaQuery.removeEventListener('change', handler);
-  }, [theme]);
+  }, [theme, fileSession]);
 
   // ── Tauri: listen for OS theme changes ──
   useEffect(() => {
+    if (fileSession) return;
     const isTauri = typeof window !== 'undefined' &&
       !!((window as any).__TAURI__ || (window as any).__TAURI_INTERNALS__);
     if (!isTauri) return;
@@ -854,6 +860,7 @@ export function WorkspaceProvider({
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!editorActive()) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (hasPendingSyncs && !isSyncing && isOnline) syncDrafts();
@@ -865,8 +872,8 @@ export function WorkspaceProvider({
 
   // NotesPage custom events
   useEffect(() => {
-    const onOpenExport = () => setIsExportNoteModalOpen(true);
-    const onOpenImport = () => setIsImportNoteModalOpen(true);
+    const onOpenExport = () => { if (editorActive()) setIsExportNoteModalOpen(true); };
+    const onOpenImport = () => { if (editorActive()) setIsImportNoteModalOpen(true); };
     window.addEventListener('notes:open-export-modal', onOpenExport);
     window.addEventListener('notes:open-import-modal', onOpenImport);
     return () => {
@@ -1034,7 +1041,9 @@ export function WorkspaceProvider({
   // Workspace switches must flush the latest canvas and editor state.
   const flushPendingSavesRef = useRef(flushPendingSaves);
   flushPendingSavesRef.current = flushPendingSaves;
-  const flushCurrentPendingSaves = useCallback(() => flushPendingSavesRef.current(), []);
+  const flushCurrentPendingSaves = useCallback(() => fileSession
+    ? flushPendingSavesRef.current()
+    : flushWorkspaceEditors(flushPendingSavesRef.current), [fileSession]);
 
   const refreshTeamScope = useCallback(async () => {
     setIsTeamScopeRefreshing(true);
@@ -1251,6 +1260,7 @@ export function WorkspaceProvider({
     itemToDelete, setItemToDelete,
     createDialogOpen, setCreateDialogOpen, createDialogView, setCreateDialogView,
     editDialogNote, setEditDialogNote, tableDeleteDoc, setTableDeleteDoc,
+    isSettingsOpen, setIsSettingsOpen, settingsTab, setSettingsTab,
     // Header handlers
     handleHeaderDelete, handleHeaderRename, handleHeaderSettingsSaved,
     handleHeaderExportImage,

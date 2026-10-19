@@ -119,6 +119,7 @@ interface ERDViewProps {
 
 
 import { ERDToolbar } from '@/components/diagram/ERDToolbar';
+import { useEditorActive } from '@/contexts/FileSessionContext';
 
 const ERDViewComponent = ({
   nodes,
@@ -164,6 +165,7 @@ const ERDViewComponent = ({
 }: ERDViewProps) => {
 
   const { registerContentHandler, setSelectionText, setActionContextData, setRightPanelMode } = useAIAction();
+  const editorActive = useEditorActive();
   const { getViewport, getNodes, getEdges, setViewport, setCenter } = useReactFlow();
   const { resolvedTheme, activeDiagram, syncDrafts, hasPendingSyncs, isLocalSaving } = useWorkspace();
   const bgColor = resolvedTheme === 'dark' ? '#222' : '#ccc';
@@ -239,13 +241,14 @@ const ERDViewComponent = ({
 
   React.useEffect(() => {
     const onDiscussionAnchorSelected = (event: Event) => {
-      const detail = (event as CustomEvent<{ type?: "general" | "table" | "relationship"; id?: string | null }>).detail;
+      const detail = (event as CustomEvent<{ fileId?: string; type?: "general" | "table" | "relationship"; id?: string | null }>).detail;
+      if (detail?.fileId ? String(activeDiagram?.uid ?? activeDiagram?.id) !== detail.fileId : !editorActive()) return;
       if (!detail?.type) return;
       handleDiscussionAnchorSelected(detail.type, detail.id ?? null);
     };
     window.addEventListener('erd-discussion-anchor-selected', onDiscussionAnchorSelected);
     return () => window.removeEventListener('erd-discussion-anchor-selected', onDiscussionAnchorSelected);
-  }, [handleDiscussionAnchorSelected]);
+  }, [handleDiscussionAnchorSelected, activeDiagram?.uid, activeDiagram?.id]);
 
   const saveCanvasAfterNodeDrag = useCallback(() => {
     if (!saveDiagram) return;
@@ -518,6 +521,7 @@ const ERDViewComponent = ({
 
   React.useEffect(() => {
     const previewHistory = (event: Event) => {
+      if (!editorActive()) return;
       const preview = (event as CustomEvent<ErdHistoryPreview | undefined>).detail;
       if (!preview) {
         setPendingDiff(current => current?.source === 'history' ? null : current);
@@ -531,6 +535,7 @@ const ERDViewComponent = ({
 
   React.useEffect(() => {
     const previewRepository = (event: Event) => {
+      if (!editorActive()) return;
       const preview = (event as CustomEvent<RepositoryPreview | undefined>).detail;
       if (!preview) {
         setPendingDiff(current => current?.source.startsWith('repository') ? null : current);
@@ -810,6 +815,7 @@ const ERDViewComponent = ({
       )}
       <div ref={canvasRef} className="flex-1">
         <ReactFlow
+          id={activeDiagram?.uid ? `erd-${activeDiagram.uid}` : undefined}
           nodes={pendingDiff ? diffNodesWithMode : styledNodes}
           edges={pendingDiff ? styledDiffEdges : styledEdges}
           onNodesChange={handleNodesChangeLocal}

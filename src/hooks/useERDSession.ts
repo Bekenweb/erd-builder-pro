@@ -1,4 +1,5 @@
 import { readPendingERDCanvas } from '@/lib/erd-draft-canvas';
+import { useEditorActive } from '@/contexts/FileSessionContext';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { apiFetch } from '../lib/api';
 import { 
@@ -41,6 +42,7 @@ export function useERDSession(
     onDeleteEntity?: (entityId: string) => void;
   }
 ) {
+  const editorActive = useEditorActive();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<Entity>>([]);
   const [isItemLoading, setIsItemLoading] = useState(false);
   const [saveCounter, setSaveCounter] = useState(0);
@@ -898,6 +900,7 @@ export function useERDSession(
   // Extracted from App.tsx global keydown handler — only active in erd view
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (!editorActive()) return;
       const target = e.target as HTMLElement | null;
       const isEditingText = target?.matches('input, textarea, [contenteditable="true"]')
         || !!target?.closest('.cm-editor');
@@ -924,6 +927,7 @@ export function useERDSession(
   // Dispatched from EntityNode.tsx dropdown menu actions
   useEffect(() => {
     const onDeleteEntity = (e: Event) => {
+      if (!editorActive()) return;
       const detail = (e as CustomEvent).detail;
       deleteEntity(detail);
     };

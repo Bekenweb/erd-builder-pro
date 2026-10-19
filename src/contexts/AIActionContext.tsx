@@ -7,7 +7,7 @@ export interface PendingActionResult {
 
 export type RightPanelMode = 'closed' | 'chat' | 'dbml' | 'properties' | 'history' | 'repository';
 
-interface AIActionContextValue {
+export interface AIActionContextValue {
   /** Send an AI action prompt — opens chat panel and injects prompt */
   sendAction: (prompt: string, actionId?: string, onResult?: (response: string) => void) => void;
   /** Current pending prompt (consumed by AIChatPanel) */
@@ -43,10 +43,16 @@ interface AIActionContextValue {
 const AIActionContext = createContext<AIActionContextValue | null>(null);
 const SetActionContextDataContext = createContext<AIActionContextValue['setActionContextData'] | null>(null);
 
-export function AIActionProvider({ children }: { children: ReactNode }) {
+export function AIActionScope({ value, children }: { value: AIActionContextValue; children: ReactNode }) {
+  return <SetActionContextDataContext.Provider value={value.setActionContextData}><AIActionContext.Provider value={value}>{children}</AIActionContext.Provider></SetActionContextDataContext.Provider>;
+}
+
+export function AIActionProvider({ children, panelMode, onPanelModeChange }: { children: ReactNode; panelMode?: RightPanelMode; onPanelModeChange?: (mode: RightPanelMode) => void }) {
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingActionResult | null>(null);
-  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('closed');
+  const [localPanelMode, setLocalPanelMode] = useState<RightPanelMode>('closed');
+  const rightPanelMode = panelMode ?? localPanelMode;
+  const setRightPanelMode = onPanelModeChange ?? setLocalPanelMode;
   const [contentHandler, setContentHandler] = useState<((content: string, strategy: 'replace' | 'append', actionId?: string) => void) | null>(null);
   const [contentHandlerStrategies, setContentHandlerStrategies] = useState<('replace' | 'append')[]>(['replace', 'append']);
   const [selectionText, setSelectionText] = useState<string | null>(null);
@@ -63,7 +69,7 @@ export function AIActionProvider({ children }: { children: ReactNode }) {
       }
       setRightPanelMode('chat');
     },
-    [],
+    [setRightPanelMode],
   );
 
   const clearPrompt = useCallback(() => {
