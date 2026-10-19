@@ -11,11 +11,9 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Globe, CloudOff, Cloud, Save, Check, Loader2, Copy } from 'lucide-react';
+import { Globe, CloudOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ShareModal } from "./modals/ShareModal";
 import { NavActionsMenu } from "./NavActionsMenu";
 import { useAIAction } from '@/contexts/AIActionContext';
@@ -24,6 +22,8 @@ import { AppView } from '@/types';
 
 interface MainHeaderProps {
   featureLabel: string;
+  documentPath?: string;
+  sidebarDisabled?: boolean;
   activeProjectName: string | null | undefined;
   activeFileName: string | null | undefined;
   view: AppView;
@@ -62,10 +62,13 @@ interface MainHeaderProps {
   canManage?: boolean;
   onRefresh?: () => void;
   discussionPanel?: React.ReactNode;
+  tabsRef?: (element: HTMLDivElement | null) => void;
 }
 
 export const MainHeader = React.memo(({
   featureLabel,
+  documentPath,
+  sidebarDisabled = false,
   activeProjectName,
   activeFileName,
   view,
@@ -99,11 +102,11 @@ export const MainHeader = React.memo(({
   canManage = true,
   onRefresh,
   discussionPanel,
+  tabsRef,
 }: MainHeaderProps) => {
   const location = useLocation();
   const [isShareModalOpen, setIsShareModalOpen] = React.useState(false);
   const { setRightPanelMode } = useAIAction();
-  const [isMac, setIsMac] = React.useState(false);
   const historyEntityType = view === 'erd'
     ? 'diagrams'
     : view === 'flowchart'
@@ -124,23 +127,23 @@ export const MainHeader = React.memo(({
       .catch(() => toast.error('Failed to copy file path'));
   }, [activeFileName, activeProjectName]);
 
-  React.useEffect(() => {
-    setIsMac(window.navigator.userAgent.toLowerCase().includes('mac'));
-  }, []);
+  const editorPath = documentPath ?? location.pathname;
+  const hasTabs = !isPublicView && /^\/(notes|diagrams|drawings|flowcharts|db-client)\/[^/]+$/.test(editorPath);
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12 w-full overflow-hidden border-b bg-background/50 backdrop-blur-sm">
-      <div className="flex min-w-0 flex-1 items-center gap-2 px-4">
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-2 sm:px-4">
         {!isPublicView && (
           <>
-            <SidebarTrigger className="-ml-1 shrink-0" />
+            <SidebarTrigger className="-ml-1 shrink-0" disabled={sidebarDisabled} />
             <Separator orientation="vertical" className="h-4 shrink-0 bg-border/50" />
           </>
         )}
-        <Breadcrumb className="min-w-0 flex items-center">
+        <div ref={tabsRef} className={hasTabs ? "flex min-w-0 flex-1 items-center" : "hidden"} />
+        {!hasTabs && <Breadcrumb className="min-w-0 flex items-center">
           <BreadcrumbList className="min-w-0 flex-nowrap items-center">
             {!isPublicView && (() => {
-              const path = location.pathname;
+              const path = documentPath ?? location.pathname;
               if (path === '/') {
                 return (
                   <BreadcrumbItem className="shrink-0">
@@ -162,72 +165,6 @@ export const MainHeader = React.memo(({
                   <BreadcrumbItem className="shrink-0">
                     <BreadcrumbPage className="font-medium text-foreground">{label}</BreadcrumbPage>
                   </BreadcrumbItem>
-                );
-              }
-              if (path.startsWith('/notes/') || path.startsWith('/diagrams/') || path.startsWith('/db-client/') || path.startsWith('/drawings/') || path.startsWith('/flowcharts/')) {
-                const editorInfo: Record<string, { label: string; href: string }> = {
-                    notes: { label: 'Notes', href: '/table/notes' },
-                    diagrams: { label: 'ERD Builder', href: '/table/erd' },
-                    'db-client': { label: 'DB Client', href: '/table/db-client' },
-                  drawings: { label: 'Drawings', href: '/table/drawings' },
-                  flowcharts: { label: 'Flowcharts', href: '/table/flowchart' },
-                };
-                const segment = path.split('/')[1];
-                const info = new URLSearchParams(location.search).get('feature') === 'db-client'
-                  ? { label: 'DB Client', href: '/table/db-client' }
-                  : editorInfo[segment];
-                return (
-                  <>
-                    {info && (
-                      <>
-                        <BreadcrumbItem className="shrink-0">
-                          <BreadcrumbPage className="font-medium text-muted-foreground">{info.label}</BreadcrumbPage>
-                        </BreadcrumbItem>
-                        {activeProjectName && <BreadcrumbSeparator className="shrink-0" />}
-                      </>
-                    )}
-                    {activeProjectName && (
-                      <>
-                        <BreadcrumbItem className="min-w-0 shrink">
-                          <BreadcrumbPage className="max-w-20 sm:max-w-37.5 md:max-w-62.5 truncate text-muted-foreground">{activeProjectName}</BreadcrumbPage>
-                        </BreadcrumbItem>
-                        {activeFileName && <BreadcrumbSeparator className="shrink-0" />}
-                      </>
-                    )}
-                    {activeFileName && (
-                      <BreadcrumbItem className="min-w-0 shrink flex items-center gap-2">
-                        <BreadcrumbPage className="max-w-30 sm:max-w-50 md:max-w-75 truncate font-semibold text-foreground">{activeFileName}</BreadcrumbPage>
-
-                        {info && (
-                          <Button variant="ghost" size="icon" className="size-6 shrink-0" onClick={() => copyFilePath(info.label)} title="Copy file path" aria-label="Copy file path">
-                            <Copy className="size-3.5" />
-                          </Button>
-                        )}
-
-                        {initialShareSettings?.is_public && !isPublicView && (
-                          <TooltipProvider delay={0}>
-                            <Tooltip>
-                              <TooltipTrigger render={
-                                <Badge variant="outline" className="h-5 px-1.5 gap-1.5 bg-green-500/5 text-green-500 border-green-500/20 rounded-full hover:bg-green-500/10 cursor-help shadow-sm">
-                                  <Globe className="w-2.5 h-2.5" />
-                                  <span className="text-[10px] font-bold uppercase tracking-wider hidden xs:inline">Public</span>
-                                  <div className="w-1 h-1 rounded-full bg-green-500 animate-pulse ml-0.5" />
-                                </Badge>
-                              } />
-                              <TooltipContent side="bottom" align="center" className="text-[10px] font-medium">
-                                This document is shared publicly via a secret link.
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
-                      </BreadcrumbItem>
-                    )}
-                    {!activeFileName && !activeProjectName && (
-                      <BreadcrumbItem className="shrink-0">
-                        <BreadcrumbPage className="font-medium text-foreground">{info?.label || 'Document'}</BreadcrumbPage>
-                      </BreadcrumbItem>
-                    )}
-                  </>
                 );
               }
               if (path.startsWith('/trash')) {
@@ -265,7 +202,7 @@ export const MainHeader = React.memo(({
               );
             })()}
           </BreadcrumbList>
-        </Breadcrumb>
+        </Breadcrumb>}
       </div>
 
       <div className="flex shrink-0 items-center justify-center px-2">
@@ -277,94 +214,20 @@ export const MainHeader = React.memo(({
         ) : null}
       </div>
 
-      <div className="flex shrink-0 items-center gap-1 px-2 sm:gap-4 sm:px-4">
+      <div className="flex shrink-0 items-center gap-1 pr-2 sm:pr-4">
         {!!location.pathname.match(/^\/(notes|diagrams|drawings|flowcharts)\/[^/]+$/) && (
-          <div className="flex items-center gap-1 sm:gap-4">
-            {!isPublicView && (
-              <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-                {isLocalSaving ? (
-                  <TooltipProvider delay={0}>
-                    <Tooltip>
-                      <TooltipTrigger render={
-                        <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span className="hidden xs:inline">Saving</span>
-                        </div>
-                      } />
-                      <TooltipContent side="bottom" className="text-[10px] font-medium">
-                        Saving changes locally...
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : syncError ? (
-                  <TooltipProvider delay={0}>
-                    <Tooltip>
-                      <TooltipTrigger render={
-                        <div className="flex items-center gap-1.5 p-0.5 sm:px-2 sm:py-1 rounded-md bg-destructive/10 sm:border sm:border-destructive/20 text-destructive cursor-help sm:shadow-sm transition-all duration-300">
-                          <CloudOff className="w-3.5 h-3.5" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider hidden xs:inline">Sync Failed</span>
-                        </div>
-                      } />
-                      <TooltipContent side="bottom" className="text-[10px] font-medium max-w-50 text-center">
-                        Changes saved locally, but cloud sync failed. We'll retry automatically.
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : isSyncing ? (
-                  <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
-                    <Cloud className="w-3.5 h-3.5" />
-                    <span className="hidden xs:inline">Syncing</span>
-                  </div>
-                ) : hasPendingSyncs ? (
-                  <TooltipProvider delay={0}>
-                    <Tooltip>
-                      <TooltipTrigger render={
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={onSave}
-                          disabled={!isOnline}
-                          className="h-6 sm:h-7 px-1 sm:px-2 gap-1 sm:gap-2 bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary-foreground border border-primary/20 transition-all duration-300 sm:shadow-sm"
-                        >
-                          <Save className="w-3.5 h-3.5 animate-in zoom-in-50" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider hidden xs:inline">Save</span>
-                        </Button>
-                      } />
-                      <TooltipContent side="bottom" className="text-[10px] font-medium">
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span>Save changes to cloud</span>
-                          <span className="opacity-50 text-[9px]">{isMac ? '⌘' : 'Ctrl'} + S</span>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                ) : (
-                  <TooltipProvider delay={0}>
-                    <Tooltip>
-                      <TooltipTrigger render={
-                        <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
-                          <Check className="w-3.5 h-3.5" />
-                          <span className="hidden xs:inline">Saved</span>
-                        </div>
-                      } />
-                      <TooltipContent side="bottom" className="text-[10px] font-medium">
-                        All changes are saved and synced
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-                
-                {isRefreshing && (
-                  <div className="flex items-center gap-2 text-primary animate-pulse ml-1 sm:ml-2">
-                     <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                  </div>
-                )}
-              </div>
+          <div className="flex items-center gap-1 sm:gap-2">
+            {!isPublicView && syncError && (
+              <span role="status" title="Changes saved locally, but cloud sync failed. We'll retry automatically." className="flex shrink-0 items-center gap-1 text-destructive">
+                <CloudOff className="size-4" /><span className="hidden lg:inline text-xs">Sync Failed</span>
+              </span>
             )}
 
+            {!isPublicView && initialShareSettings?.is_public && <Badge variant="outline" title="This document is shared publicly via a secret link." className="shrink-0 gap-1"><Globe className="size-3" /><span className="hidden lg:inline">Public</span></Badge>}
             {discussionPanel}
 
             <NavActionsMenu 
+              onCopyPath={!isPublicView ? () => copyFilePath(new URLSearchParams(location.search).get('feature') === 'db-client' ? 'DB Client' : ({ notes: 'Notes', erd: 'ERD Builder', flowchart: 'Flowcharts', drawings: 'Drawings' }[view] || featureLabel)) : undefined}
               onShare={canManage ? () => isOnline && setIsShareModalOpen(true) : undefined}
               onDelete={onDelete}
               onRename={onRename}

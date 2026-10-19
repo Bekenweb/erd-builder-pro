@@ -45,7 +45,7 @@ export function ReplyBox({ userName, value, onChange, onSubmit, disabled = false
   return (
     <form onSubmit={(event) => { event.preventDefault(); submit(); }} className="shrink-0 border-t border-border p-3">
       <div className="flex items-end gap-1.5 rounded-lg border border-primary/60 bg-background px-2.5 py-1.5 ring-2 ring-primary/20">
-        <textarea
+        <textarea data-comment-draft
           ref={input}
           rows={1}
           maxLength={4000}

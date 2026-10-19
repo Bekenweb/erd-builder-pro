@@ -6,6 +6,7 @@ import { apiFetch } from '../lib/api';
 import { getCachedDiagramVersion, updateCachedDiagramVersion, clearCachedDiagramVersion, documentVersionKey } from '../lib/diagramVersioning';
 import { edgeToRelationship } from '../lib/diagram-payload';
 import { mergeServerCommentAnchors } from '../lib/noteAnchorMerge';
+import { serializePaneSync } from '../lib/pane-sync';
 
 export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean = false) {
   const [isSyncing, setIsSyncing] = useState(false);
@@ -88,7 +89,7 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
   const baseVersion = async (draft: { type: DraftType; id: string | number }): Promise<number | undefined> =>
     (await getCachedDiagramVersion(documentVersionKey(draft.type, draft.id))) ?? undefined;
 
-  const syncDrafts = useCallback(async () => {
+  const syncPendingDrafts = useCallback(async () => {
     if (!isAuthenticated || !navigator.onLine || isGuestCheck()) return;
     
     if (isSyncingRef.current) {
@@ -232,6 +233,9 @@ export function useSyncService(isAuthenticated: boolean | null, isGuest: boolean
       refreshPendingStatus(); // Update the UI status at the end
     }
   }, [isAuthenticated, isGuest, healDraftData, refreshPendingStatus]);
+
+  // Both frames share IndexedDB; do not upload the same pending draft concurrently.
+  const syncDrafts = useCallback(() => serializePaneSync(syncPendingDrafts), [syncPendingDrafts]);
 
   const triggerDebouncedSync = useCallback(() => {
     // Guest mode saves directly to IndexedDB — no cloud sync needed

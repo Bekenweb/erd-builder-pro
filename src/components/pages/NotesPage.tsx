@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { useEditorActive } from '@/contexts/FileSessionContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { getTitleCache, getContentCache } from '@/utils/titleCache';
 import { localPersistence } from '@/lib/localPersistence';
@@ -51,6 +52,7 @@ export interface NotesPageProps {
  * has been extracted to useNoteNavigation hook.
  */
 export const NotesPage = React.memo(function NotesPage(props: NotesPageProps) {
+  const editorActive = useEditorActive();
   const {
     notes, setNotes, activeNoteUid, setActiveNoteUid,
     isAuthenticated,
@@ -68,9 +70,11 @@ export const NotesPage = React.memo(function NotesPage(props: NotesPageProps) {
   // NotesPage relays them to modal components in App.tsx via event chain.
   useEffect(() => {
     const onOpenExport = () => {
+      if (!editorActive()) return;
       window.dispatchEvent(new CustomEvent('notes:open-export-modal'));
     };
     const onOpenImport = () => {
+      if (!editorActive()) return;
       window.dispatchEvent(new CustomEvent('notes:open-import-modal'));
     };
     window.addEventListener('notes:open-export', onOpenExport);
@@ -129,6 +133,7 @@ export const NotesPage = React.memo(function NotesPage(props: NotesPageProps) {
   // Extracted from App.tsx lines 1070-1080
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (!editorActive()) return;
       if (view !== 'notes' || !activeNoteUid) return;
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
         e.preventDefault();

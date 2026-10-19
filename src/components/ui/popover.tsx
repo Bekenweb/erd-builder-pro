@@ -2,6 +2,7 @@ import * as React from "react"
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
 
 import { cn } from "@/lib/utils"
+import { useFileSession } from '@/contexts/FileSessionContext';
 
 function Popover({ ...props }: PopoverPrimitive.Root.Props) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />
@@ -12,7 +13,8 @@ function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
 }
 
 function PopoverPortal({ ...props }: PopoverPrimitive.Portal.Props) {
-  return <PopoverPrimitive.Portal data-slot="popover-portal" {...props} />
+  const session = useFileSession();
+  return <PopoverPrimitive.Portal container={session?.host.current ?? undefined} data-slot="popover-portal" {...props} />
 }
 
 function PopoverContent({
@@ -27,9 +29,11 @@ function PopoverContent({
     PopoverPrimitive.Positioner.Props,
     "align" | "alignOffset" | "side" | "sideOffset" | "anchor"
   >) {
+  const session = useFileSession();
   return (
     <PopoverPortal>
       <PopoverPrimitive.Positioner
+        collisionBoundary={session?.host.current ?? undefined}
         className="z-200"
         align={align}
         side={side}
@@ -40,7 +44,8 @@ function PopoverContent({
           data-slot="popover-content"
           className={cn(
             "z-80 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-            className
+            className,
+            session && "max-w-(--available-width)"
           )}
           {...props}
         />

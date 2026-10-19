@@ -116,7 +116,7 @@ export function CommentThreadView({ file, anchor, autoFocus = false, showActions
       {thread.status === 'open' && (
         <form className="mx-0.5 mb-0.5 flex items-end gap-1.5 rounded-lg border border-input bg-background px-2.5 py-1.5 transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20"
           onSubmit={(event) => { event.preventDefault(); void submit(); }}>
-          <textarea
+          <textarea data-comment-draft
             ref={input}
             value={draft}
             rows={1}

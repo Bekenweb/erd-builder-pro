@@ -1,10 +1,5 @@
-import React, { useMemo } from 'react';
-import { Button } from "@/components/ui/button";
-import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
-import { Info, ListTree } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useState } from 'react';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
 export interface HeadingInfo {
   text: string;
@@ -12,195 +7,33 @@ export interface HeadingInfo {
   pos: number;
 }
 
-interface DocumentOutlineProps {
+export function DocumentOutline({ headings, scrollToHeading }: {
   headings: HeadingInfo[];
   scrollToHeading: (pos: number) => void;
-}
-
-function buildNumberedHeadings(headings: HeadingInfo[]): { heading: HeadingInfo; number: string }[] {
-  const counters: number[] = [0, 0, 0, 0, 0, 0];
-  return headings.map(h => {
-    const idx = h.level - 1;
-    counters[idx]++;
-    for (let i = idx + 1; i < counters.length; i++) counters[i] = 0;
-    const number = counters.slice(0, idx + 1).filter(Boolean).join('.');
-    return { heading: h, number };
-  });
-}
-
-export function DocumentOutline({ headings, scrollToHeading, side = 'right' }: DocumentOutlineProps & { side?: 'left' | 'right' }) {
-  const numbered = useMemo(() => buildNumberedHeadings(headings), [headings]);
-  const [calculationHelpOpen, setCalculationHelpOpen] = React.useState(false);
-
-  return (
-    <>
-      {/* Only the buttons take pointer events: this full-height column must not cover the comment margin. */}
-      <div className={`pointer-events-none absolute ${side === 'left' ? '-left-14' : '-right-14'} top-0 h-full hidden md:block z-40`}>
-        <div className="pointer-events-auto sticky top-1/2 -translate-y-1/2">
-          <TooltipProvider delay={0}>
-            <HoverCard openDelay={100} closeDelay={300}>
-              <HoverCardTrigger asChild>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  aria-label="Document Outline"
-                  className="h-8 w-8 rounded-full shadow-md border border-border/50 bg-background hover:bg-accent transition-colors"
-                >
-                  <ListTree className="w-4 h-4 text-muted-foreground" />
-                </Button>
-              </HoverCardTrigger>
-
-              <HoverCardContent
-                side={side === 'left' ? 'right' : 'left'}
-                align="center"
-                sideOffset={10}
-                collisionPadding={8}
-                className="z-[120] w-60 bg-popover/95 backdrop-blur-xl border-border rounded-lg p-3 shadow-xl"
-              >
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between border-b pb-1.5">
-                    <div className="text-xs font-semibold tracking-tight">Navigation</div>
-                    <span className="text-[10px] text-muted-foreground uppercase font-medium">Headings</span>
-                  </div>
-
-                  {numbered.length > 0 ? (
-                    <div className="flex flex-col gap-0.5 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1">
-                      {numbered.map(({ heading, number }, i) => (
-                        <button
-                          key={`${heading.pos}-${i}`}
-                          onClick={() => scrollToHeading(heading.pos)}
-                          className={cn(
-                            "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-foreground",
-                            heading.level === 1 ? "text-primary font-bold bg-primary/5" :
-                              heading.level === 2 ? "pl-4 text-foreground/70" :
-                                heading.level === 3 ? "pl-6 text-foreground/60" :
-                                  heading.level === 4 ? "pl-8 text-foreground/50" :
-                                    "pl-10 text-foreground/40"
-                          )}
-                        >
-                          <span className="shrink-0 whitespace-nowrap tabular-nums text-muted-foreground/50">{number}.</span>
-                          <span className="min-w-0 flex-1 truncate">{heading.text}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-3 text-center text-muted-foreground/50">
-                      <p className="text-xs italic">No headings found</p>
-                    </div>
-                  )}
-                </div>
-              </HoverCardContent>
-            </HoverCard>
-          </TooltipProvider>
-
-          <TooltipProvider delay={0}>
-            <Tooltip>
-              <TooltipTrigger render={<div className="flex items-center justify-center mt-2" />}>
-                <Button
-                  variant="secondary"
-                  size="icon"
-                  onClick={() => setCalculationHelpOpen(true)}
-                  className="h-8 w-8 rounded-full shadow-md border border-border/50 bg-background hover:bg-accent transition-colors"
-                >
-                  <Info className="w-4 h-4 text-muted-foreground" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                <p>Calculation Guide</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-      </div>
-
-      <Dialog open={calculationHelpOpen} onOpenChange={setCalculationHelpOpen}>
-        <DialogContent size="2xl" className="max-h-[82vh]">
-          <DialogHeader>
-            <DialogTitle>Table Calculation Guide</DialogTitle>
-          </DialogHeader>
-          <DialogBody className="space-y-5 overflow-y-auto pr-1 text-sm leading-6">
-            <section className="space-y-2">
-              <h3 className="font-semibold text-foreground">How it works</h3>
-              <p className="text-muted-foreground">
-                Type a formula command in a table cell, then leave the cell. The editor replaces the
-                command with the calculated result. Hover the result cell to see the Excel-style source
-                range used for that value.
-              </p>
-            </section>
-
-            <section className="space-y-2">
-              <h3 className="font-semibold text-foreground">Vertical formulas</h3>
-              <p className="text-muted-foreground">
-                Vertical formulas calculate numeric values in the same column. They are intended for
-                header or footer rows.
-              </p>
-              <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
-                <code>=SUM</code>
-                <code>=SUMV</code>
-                <span className="text-muted-foreground">Sum values vertically, for example: SUMV(B2:B5).</span>
-                <code>=AVG</code>
-                <code>=AVGV</code>
-                <span className="text-muted-foreground">Average values vertically, for example: AVGV(C2:C5).</span>
-                <code>=MUL</code>
-                <code>=PRODUCT</code>
-                <code>=MULV</code>
-                <code>=PRODUCTV</code>
-                <span className="text-muted-foreground">Multiply values vertically, for example: PRODUCTV(D2:D5).</span>
-              </div>
-            </section>
-
-            <section className="space-y-2">
-              <h3 className="font-semibold text-foreground">Horizontal formulas</h3>
-              <p className="text-muted-foreground">
-                Horizontal formulas calculate numeric values to the left of the formula cell in the same row.
-              </p>
-              <div className="grid gap-2 rounded-md border bg-muted/30 p-3">
-                <code>=SUMH</code>
-                <span className="text-muted-foreground">Sum values horizontally, for example: SUMH(B2:C2).</span>
-                <code>=AVGH</code>
-                <span className="text-muted-foreground">Average values horizontally, for example: AVGH(B2:D2).</span>
-                <code>=MULH</code>
-                <code>=PRODUCTH</code>
-                <span className="text-muted-foreground">Multiply values horizontally, for example: PRODUCTH(B2:C2).</span>
-              </div>
-            </section>
-
-            <section className="space-y-2">
-              <h3 className="font-semibold text-foreground">Examples</h3>
-              <div className="rounded-md border overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="px-3 py-2 font-medium">Item</th>
-                      <th className="px-3 py-2 font-medium">Qty</th>
-                      <th className="px-3 py-2 font-medium">Price</th>
-                      <th className="px-3 py-2 font-medium">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-t">
-                      <td className="px-3 py-2">Hosting</td>
-                      <td className="px-3 py-2">12</td>
-                      <td className="px-3 py-2">90.000</td>
-                      <td className="px-3 py-2"><code>=MULH</code> becomes 1.080.000</td>
-                    </tr>
-                    <tr className="border-t">
-                      <td className="px-3 py-2">Setup</td>
-                      <td className="px-3 py-2">100.000</td>
-                      <td className="px-3 py-2">50.000</td>
-                      <td className="px-3 py-2"><code>=SUMH</code> becomes 150.000</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-muted-foreground">
-                Text cells are skipped. Indonesian number formatting such as 1.080.000 and decimal
-                commas is accepted. Currency symbols are ignored when possible.
-              </p>
-            </section>
-          </DialogBody>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
+}) {
+  const [open, setOpen] = useState(false);
+  if (!headings.length) return null;
+  return <div className="absolute left-2 top-1/2 z-40 max-h-[60%] -translate-y-1/2 sm:left-3">
+    <HoverCard open={open} onOpenChange={setOpen} openDelay={100} closeDelay={250}>
+      <HoverCardTrigger asChild>
+        <button type="button" aria-label={`Document Outline: ${headings.length} headings`} aria-expanded={open}
+          onClick={() => setOpen(true)} onFocus={() => setOpen(true)}
+          onKeyDown={event => { if (event.key === 'Escape') setOpen(false); }}
+          className="flex max-h-[50dvh] w-8 flex-col items-start gap-2 overflow-y-auto rounded-md px-1 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          {headings.map(heading => <span key={heading.pos} aria-hidden="true" className="h-0.5 shrink-0 rounded-full bg-muted-foreground/40" style={{ width: Math.max(6, 20 - (heading.level - 1) * 3) }} />)}
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent side="right" align="center" sideOffset={4} collisionPadding={8}
+        className="w-64 max-w-[calc(100vw-4rem)] p-2" onKeyDown={event => { if (event.key === 'Escape') setOpen(false); }}>
+        <nav aria-label="Note headings" className="flex max-h-[60dvh] min-w-0 flex-col gap-0.5 overflow-y-auto">
+          {headings.map(heading => <button key={heading.pos} type="button" title={heading.text}
+            className="w-full rounded-md py-1.5 pr-2 text-left text-xs text-popover-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            style={{ paddingLeft: 8 + (heading.level - 1) * 12 }}
+            onClick={() => { scrollToHeading(heading.pos); setOpen(false); }}>
+            <span className="block truncate">{heading.text || 'Untitled heading'}</span>
+          </button>)}
+        </nav>
+      </HoverCardContent>
+    </HoverCard>
+  </div>;
 }

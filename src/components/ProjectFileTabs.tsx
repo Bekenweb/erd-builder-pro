@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { ProjectTabsContext } from '@/contexts/ProjectTabsContext'
+import { Popover, PopoverTrigger, PopoverContent } from './ui/popover'
+import { Button } from './ui/button'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Check, ChevronLeft, ChevronRight, Database, DatabaseZap, FileText, GitBranch, PenTool, Plus } from 'lucide-react'
+import { useFilePanes } from '@/contexts/FilePanesContext'
+import { type PaneFile } from '@/lib/file-panes'
+import { ProjectFileTabButton } from './ProjectFileTabButton'
 import { useWorkspace } from '@/providers/WorkspaceProvider'
 import { Input } from '@/components/ui/input'
 import { apiFetch } from '@/lib/api'
@@ -86,9 +93,12 @@ async function loadWorkspaceTabs(projectId: string | number, userId: string | nu
 interface Props {
   currentView: FeatureTab
   currentFile?: any
+  host?: boolean
 }
 
-export function ProjectFileTabs({ currentView, currentFile }: Props) {
+export function ProjectFileTabs({ currentView, currentFile, host = false }: Props) {
+  const tabsTarget = useContext(ProjectTabsContext)
+  const panes = useFilePanes()
   const [createOpen, setCreateOpen] = useState(false)
   const [createType, setCreateType] = useState<CreateFileType>('notes')
   const [newName, setNewName] = useState('')
@@ -96,7 +106,6 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
   const [workspaceResult, setWorkspaceResult] = useState<{ projectKey: string; files: WorkspaceFile[] }>({
     projectKey: '', files: [],
   })
-  const popoverRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -110,18 +119,6 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
     handleSidebarDiagramCreate, handleSidebarNoteCreate,
     handleSidebarDrawingCreate, handleSidebarFlowchartCreate,
   } = useWorkspace()
-
-  useEffect(() => {
-    if (!createOpen) return
-    const handler = (e: MouseEvent) => {
-      if (!popoverRef.current?.contains(e.target as Node)) {
-        setCreateOpen(false)
-        setNewName('')
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [createOpen])
 
   useEffect(() => {
     if (createOpen) setTimeout(() => inputRef.current?.focus(), 0)
@@ -207,6 +204,10 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
         : activeDrawing?.uid || activeDrawingId
 
   const navigateTo = (type: FeatureTab, file: any) => {
+    if (panes && type !== 'db-client') {
+      panes.select({ type, uid: String(getFileUid(file)), title: getFileName(file), projectId: String(projectId) })
+      return
+    }
     if (type === 'erd') {
       void handleDiagramSelect(String(getFileUid(file)))
       return
@@ -248,35 +249,36 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
   useEffect(() => {
     const strip = stripRef.current
     if (!strip) return
-    // Bring the open file into view without scrolling any ancestor, which scrollIntoView would also do.
-    const active = strip.querySelector<HTMLElement>('[aria-current="page"]')
-    if (active) {
-      const tab = active.getBoundingClientRect()
-      const box = strip.getBoundingClientRect()
-      if (tab.left < box.left) strip.scrollLeft -= box.left - tab.left + 8
-      else if (tab.right > box.right) strip.scrollLeft += tab.right - box.right + 8
+    const revealActive = () => {
+      const active = strip.querySelector<HTMLElement>('[aria-current="page"]')
+      if (active) {
+        const tab = active.getBoundingClientRect()
+        const box = strip.getBoundingClientRect()
+        if (tab.left < box.left) strip.scrollLeft -= box.left - tab.left + 8
+        else if (tab.right > box.right) strip.scrollLeft += Math.min(tab.right - box.right + 8, tab.left - box.left)
+      }
+      measureReach()
     }
-    measureReach()
+    revealActive()
     // Older WebViews have no ResizeObserver; the window size is then the only change that needs a new measurement.
     if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', measureReach)
-      return () => window.removeEventListener('resize', measureReach)
+      window.addEventListener('resize', revealActive)
+      return () => window.removeEventListener('resize', revealActive)
     }
-    const observer = new ResizeObserver(measureReach)
+    const observer = new ResizeObserver(revealActive)
     observer.observe(strip)
     return () => observer.disconnect()
-  }, [activeUid, projectFiles.length, measureReach])
+  }, [activeUid, projectFiles.length, measureReach, tabsTarget])
 
   const scrollStrip = (direction: -1 | 1) => {
     const strip = stripRef.current
     if (strip) strip.scrollBy({ left: direction * Math.max(strip.clientWidth * 0.6, 160), behavior: 'smooth' })
   }
 
-  if (!projectId) return null
+  if (!projectId || (panes && !host) || !tabsTarget) return null
 
-  // The page already pads the top by 16px; mb-3 plus the 4px of py-1 gives the same 16px below, and -mt-1 offsets the py-1 above.
-  return (
-    <nav aria-label="Project files" className="-mt-1 mb-3 flex items-center shrink-0">
+  return createPortal(
+    <nav aria-label="Project files" className="flex w-full min-w-0 items-center gap-1 py-1">
       <div className="relative min-w-0 flex-1">
         {reach.before && (
           <button
@@ -312,42 +314,19 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
             const feature = FEATURES.find(item => item.id === type)!
             const Icon = feature.icon
             const uid = getFileUid(file)
-            const isActive = currentView === type && String(activeUid) === String(uid)
+            const pane: PaneFile | null = type === 'db-client' ? null : { type, uid: String(uid), title: getFileName(file), projectId: String(projectId) }
             return (
-              <button
-                key={`${type}-${uid}`}
-                type="button"
-                aria-current={isActive ? 'page' : undefined}
-                onClick={() => navigateTo(type, file)}
-                className={cn(
-                  "flex h-8 max-w-44 shrink-0 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-colors",
-                  isActive
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-muted text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                )}
-                title={`${feature.label}: ${getFileName(file)}`}
-              >
-                <Icon className="size-3.5" />
-                <span className="truncate">{getFileName(file)}</span>
-              </button>
+              <ProjectFileTabButton key={`${type}-${uid}`} file={pane} title={getFileName(file)} feature={feature.label} icon={Icon}
+                active={currentView === type && String(activeUid) === String(uid)} onSelect={() => navigateTo(type, file)} />
             )
           })}
           </div>
         </div>
       </div>
 
-      <div ref={popoverRef} className="relative shrink-0 pl-2">
-        <button
-          onClick={() => setCreateOpen(open => !open)}
-          className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          aria-label="Create file"
-          aria-expanded={createOpen}
-        >
-          <Plus className="size-4" />
-        </button>
-
-        {createOpen && (
-          <div className="absolute right-2 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md">
+      <Popover open={createOpen} onOpenChange={open => { setCreateOpen(open); if (!open) setNewName('') }}>
+        <PopoverTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Create file" className="shrink-0"><Plus /></Button>} />
+        <PopoverContent align="end" className="w-72 max-w-[calc(100vw-1rem)] overflow-hidden p-0">
             <div className="max-h-56 overflow-y-auto p-1">
               {FEATURES.filter(feature => feature.id !== 'db-client').map(feature => {
                 const Icon = feature.icon
@@ -392,9 +371,8 @@ export function ProjectFileTabs({ currentView, currentFile }: Props) {
                 Create
               </button>
             </div>
-          </div>
-        )}
-      </div>
-    </nav>
+        </PopoverContent>
+      </Popover>
+    </nav>, tabsTarget
   )
 }

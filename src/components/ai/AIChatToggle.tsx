@@ -23,6 +23,7 @@ export const AIChatToggle: React.FC<AIChatToggleProps> = ({ isOpen, onClick, rai
         <TooltipTrigger
           render={
             <Button
+              aria-label="Open AI Assistant"
               onClick={onClick}
               className={`fixed right-6 ${raised ? 'bottom-16' : 'bottom-4'} z-50 size-12 rounded-full shadow-lg shadow-primary/20 hover:shadow-xl hover:shadow-primary/30 transition-all duration-200 hover:scale-105 active:scale-95`}
               size="icon"

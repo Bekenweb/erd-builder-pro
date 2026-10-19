@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowUp, Check, CheckCircle2, MoreHorizontal, RotateCcw, Trash2, X } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import { MessageScroller, MessageScrollerContent, MessageScrollerProvider, Messa
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import ConfirmModal from '@/components/ConfirmModal';
 import { apiFetch } from '@/lib/api';
+import { useFileSession } from '@/contexts/FileSessionContext';
 
 export type CommentAnchor = { type: 'table' | 'relationship' | 'shape'; id: string };
 export type CommentFeature = 'diagram' | 'flowchart';
@@ -84,6 +85,8 @@ async function request(path: string, init?: RequestInit): Promise<any> {
 }
 
 export function ERDCommentsProvider({ config, children }: { config: ERDCommentsConfig; children: ReactNode }) {
+  const fileSession = useFileSession();
+  const replyId = useId();
   const base = `/api/projects/${encodeURIComponent(config.projectId)}/comments`;
   const featureType = config.featureType ?? 'diagram';
   const scope = `feature_type=${featureType}&file_id=${encodeURIComponent(config.fileId)}`;
@@ -412,7 +415,9 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
   return (
     <Context.Provider value={value}>
       {children}
-      <Popover open={!!active && !!anchorElement} onOpenChange={(next) => {
+      <Popover open={!!active && !!anchorElement} onOpenChange={(next, details) => {
+        const target = details.event?.target;
+        if (!next && fileSession && details.reason === 'outside-press' && target instanceof Element && !fileSession.host.current?.contains(target)) return;
         if (!next && (deleteDialogOpen || discardTarget)) return;
         if (!next && hasUnsent) { setDiscardTarget({ anchor: null }); return; }
         if (!next) { setActive(null); setAnchorElement(null); requestId.current++; }
@@ -455,7 +460,7 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
                   </div>
                   {editingMessageId === message.id ? (
                     <form onSubmit={saveEdit} className="mt-1 flex items-end gap-1 rounded-md border bg-background px-2 py-1 focus-within:border-ring">
-                      <textarea ref={editTextarea} rows={1} maxLength={4000} value={editDraft} onChange={(event) => { setEditDraft(event.target.value); resizeTextarea(event.target); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} className="min-w-0 max-h-[120px] min-h-5 flex-1 resize-none bg-transparent text-xs outline-none" aria-label="Edit comment" />
+                      <textarea data-comment-draft ref={editTextarea} rows={1} maxLength={4000} value={editDraft} onChange={(event) => { setEditDraft(event.target.value); resizeTextarea(event.target); }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} className="min-w-0 max-h-[120px] min-h-5 flex-1 resize-none bg-transparent text-xs outline-none" aria-label="Edit comment" />
                       <button type="button" aria-label="Cancel edit" disabled={sending} onClick={() => { setEditingMessageId(null); setEditDraft(''); }} className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground disabled:opacity-40"><X aria-hidden="true" className="size-3" /></button>
                       <button type="submit" aria-label="Save comment" disabled={!editDraft.trim() || sending} className="flex size-5 shrink-0 items-center justify-center rounded-full bg-sky-500 text-white disabled:opacity-40"><Check aria-hidden="true" className="size-3" /></button>
                     </form>
@@ -468,8 +473,8 @@ export function ERDCommentsProvider({ config, children }: { config: ERDCommentsC
             </MessageScroller>
           </MessageScrollerProvider>}
           <form onSubmit={submit} className={`mx-2 mb-2 flex shrink-0 items-end gap-1.5 rounded-md border bg-background px-2 py-1 focus-within:border-ring ${loading || messages.length > 0 ? 'mt-0' : 'mt-2'}`}>
-            <label className="sr-only" htmlFor="erd-comment-reply">Write a comment</label>
-            <textarea ref={textarea} id="erd-comment-reply" rows={1} maxLength={4000} value={draft} disabled={loading || threadResolved || sending} onChange={(event) => {
+            <label className="sr-only" htmlFor={replyId}>Write a comment</label>
+            <textarea data-comment-draft ref={textarea} id={replyId} rows={1} maxLength={4000} value={draft} disabled={loading || threadResolved || sending} onChange={(event) => {
               setDraft(event.target.value);
               resizeTextarea(event.target);
             }} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={threadResolved ? 'Reopen thread to comment…' : messages.length ? 'Reply…' : 'Add a comment…'} className="min-w-0 max-h-[120px] min-h-5 flex-1 resize-none bg-transparent text-xs outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60" />

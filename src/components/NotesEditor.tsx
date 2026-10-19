@@ -39,7 +39,7 @@ export default function NotesEditor({ note, onSave, onChange, onDelete, isReadOn
           onRequestCompanion={onRequestCompanion}
           onRequestComment={onRequestComment}
           commentFile={commentFile}
-          documentUid={note.uid}
+          documentUid={note.uid ?? String(note.id)}
         />
       </div>
     </div>

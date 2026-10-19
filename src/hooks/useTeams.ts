@@ -52,6 +52,8 @@ function writeActiveTeamId(teamId: string | null): void {
 }
 
 export function useTeams(isGuest = false, isSso = false, onActiveTeamUnavailable?: () => void) {
+  const onUnavailableRef = useRef(onActiveTeamUnavailable);
+  onUnavailableRef.current = onActiveTeamUnavailable;
   const [teams, setTeams] = useState<TeamSummary[]>([]);
   const [activeTeamId, setActiveTeamId] = useState<string | null>(readActiveTeamId);
   const [isLoading, setIsLoading] = useState(!isGuest);
@@ -80,7 +82,7 @@ export function useTeams(isGuest = false, isSso = false, onActiveTeamUnavailable
         setTeams([]);
         setActiveTeamId(null);
         writeActiveTeamId(null);
-        if (selected) onActiveTeamUnavailable?.();
+        if (selected) onUnavailableRef.current?.();
         setIsAvailable(false);
         setLicenseRequired(["INSTANCE_LICENSE_REQUIRED", "LICENSE_EXPIRED_OR_INVALID"].includes(body.code || ""));
         return [];
@@ -99,7 +101,7 @@ export function useTeams(isGuest = false, isSso = false, onActiveTeamUnavailable
       } else if (selected) {
         setActiveTeamId(null);
         writeActiveTeamId(null);
-        onActiveTeamUnavailable?.();
+        onUnavailableRef.current?.();
       }
       return nextTeams;
     } catch (error) {
@@ -112,7 +114,7 @@ export function useTeams(isGuest = false, isSso = false, onActiveTeamUnavailable
     } finally {
       if (showLoading && version === fetchVersion.current) setIsLoading(false);
     }
-  }, [isGuest, onActiveTeamUnavailable]);
+  }, [isGuest]);
 
   useEffect(() => {
     void fetchTeams(true);
