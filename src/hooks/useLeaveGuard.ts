@@ -32,25 +32,26 @@ if (typeof window !== 'undefined') {
 
 // BrowserRouter has no useBlocker, so guard the navigator, back/forward and unload directly.
 // Same-path changes (search params such as the DB Client mode tab) are not leaving and stay allowed.
+// Returns the function that removes the guard again.
+export function attachLeaveGuard(navigator: GuardedNavigator, message: string) {
+  const guard: ActiveGuard = { message, index: historyIndex(), path: window.location.pathname };
+  const { push, replace } = navigator;
+  const allow = (to: any) => targetPath(to) === window.location.pathname || window.confirm(message);
+  navigator.push = (to, ...rest) => { if (allow(to)) { push(to, ...rest); settle(guard); } };
+  navigator.replace = (to, ...rest) => { if (allow(to)) { replace(to, ...rest); settle(guard); } };
+  const onBeforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+
+  activeGuard = guard;
+  window.addEventListener('beforeunload', onBeforeUnload);
+  return () => {
+    navigator.push = push;
+    navigator.replace = replace;
+    if (activeGuard === guard) activeGuard = null;
+    window.removeEventListener('beforeunload', onBeforeUnload);
+  };
+}
+
 export function useLeaveGuard(active: boolean, message: string) {
   const { navigator } = useContext(UNSAFE_NavigationContext) as unknown as { navigator: GuardedNavigator };
-
-  useEffect(() => {
-    if (!active) return;
-    const guard: ActiveGuard = { message, index: historyIndex(), path: window.location.pathname };
-    const { push, replace } = navigator;
-    const allow = (to: any) => targetPath(to) === window.location.pathname || window.confirm(message);
-    navigator.push = (to, ...rest) => { if (allow(to)) { push(to, ...rest); settle(guard); } };
-    navigator.replace = (to, ...rest) => { if (allow(to)) { replace(to, ...rest); settle(guard); } };
-    const onBeforeUnload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
-
-    activeGuard = guard;
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => {
-      navigator.push = push;
-      navigator.replace = replace;
-      if (activeGuard === guard) activeGuard = null;
-      window.removeEventListener('beforeunload', onBeforeUnload);
-    };
-  }, [active, message, navigator]);
+  useEffect(() => (active ? attachLeaveGuard(navigator, message) : undefined), [active, message, navigator]);
 }

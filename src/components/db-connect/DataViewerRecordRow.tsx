@@ -21,7 +21,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { createColumnHelpers, displayCellValue, draftValue, formatRawCellValue, quoteTableName } from './data-viewer-utils';
+import { createColumnHelpers, DEFAULT_VALUE, displayCellValue, draftValue, formatRawCellValue, isDefaultValue, quoteTableName } from './data-viewer-utils';
 import { DataViewerTableActions } from './DataViewerTableActions';
 
 const csvCell = (value: any) => {
@@ -86,7 +86,6 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
 }: DataViewerRecordRowProps) {
   const [editingColumn, setEditingColumn] = useState<string | null>(null);
   const [menuColumn, setMenuColumn] = useState<string | null>(null);
-  const columnMeta = (column: string) => (tableSchema?.columns || []).find((item: any) => item.name === column);
   const copyText = async (text: string, label = 'Copied') => {
     await navigator.clipboard.writeText(text);
     toast.success(label);
@@ -146,7 +145,7 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
               {isEditing ? (
                 <input
                   autoFocus
-                  value={draft ? draft.value ?? '' : draftValue(column, val, columnHelpers)}
+                  value={draft ? (isDefaultValue(draft.value) ? '' : draft.value ?? '') : draftValue(column, val, columnHelpers)}
                   onChange={e => onDraftCell(row, column, e.target.value)}
                   onClick={e => e.stopPropagation()}
                   onBlur={() => setEditingColumn(null)}
@@ -160,6 +159,8 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
                 <span data-fit className="min-w-0 flex-1 truncate">
                   {displayValue === null ? (
                     <span className="text-muted-foreground/40 italic">NULL</span>
+                  ) : isDefaultValue(displayValue) ? (
+                    <span className="italic text-primary/70">DEFAULT</span>
                   ) : typeof displayValue === 'object' ? (
                     <span className="text-xs">{JSON.stringify(displayValue)}</span>
                   ) : (
@@ -192,7 +193,7 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
                       <DropdownMenuSubContent className="w-44">
                         <DropdownMenuItem onClick={() => onDraftCell(row, column, '')}>EMPTY</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onDraftCell(row, column, null)}>NULL</DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onDraftCell(row, column, columnMeta(column)?.column_default ?? '')}>DEFAULT</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onDraftCell(row, column, DEFAULT_VALUE)}>DEFAULT</DropdownMenuItem>
                       </DropdownMenuSubContent>
                     </DropdownMenuSub>
                     <DropdownMenuSeparator />

@@ -18,6 +18,11 @@ export function formatBytes(value: number | null | undefined) {
   return `${size.toFixed(size >= 10 ? 1 : 2)} ${units[unit]}`;
 }
 
+// Draft value meaning "reset this cell with the SQL DEFAULT keyword". Not a string, so it can never be mistaken
+// for typed text, and it is sent to the server as a separate `defaults` list instead of inside `values`.
+export const DEFAULT_VALUE = Object.freeze({ sqlDefault: true });
+export const isDefaultValue = (value: unknown): value is typeof DEFAULT_VALUE => value === DEFAULT_VALUE;
+
 // table_name can be a schema-qualified key for PostgreSQL non-public schemas; SQL must quote schema and name separately.
 export function quoteTableName(dbType: string | null, table: { table_name: string; table_schema?: string; base_name?: string }) {
   const quote = (name: string) => dbType === 'mysql' ? `\`${name.replace(/`/g, '``')}\`` : `"${name.replace(/"/g, '""')}"`;

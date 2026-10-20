@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createColumnHelpers, draftValue, quoteTableName, submitValue } from './data-viewer-utils';
+import { createColumnHelpers, DEFAULT_VALUE, draftValue, isDefaultValue, quoteTableName, submitValue } from './data-viewer-utils';
 
 const helpers = createColumnHelpers(new Map<string, any>([
   ['id', { type: 'bigint' }],
@@ -28,5 +28,14 @@ describe('quoteTableName', () => {
     expect(quoteTableName('postgresql', { table_name: 'tenant.users', table_schema: 'tenant', base_name: 'users' })).toBe('"tenant"."users"');
     expect(quoteTableName('postgresql', { table_name: 'users', table_schema: 'public', base_name: 'users' })).toBe('"users"');
     expect(quoteTableName('mysql', { table_name: 'users', table_schema: 'app' })).toBe('`users`');
+  });
+});
+
+describe('draft cell kinds', () => {
+  it('keeps NULL, empty text and the DEFAULT marker apart', () => {
+    expect(isDefaultValue(DEFAULT_VALUE)).toBe(true);
+    for (const other of [null, '', 'DEFAULT', "'none'::text", { sqlDefault: true }]) expect(isDefaultValue(other)).toBe(false);
+    expect(submitValue('name', '', helpers)).toBe('');
+    expect(draftValue('name', null, helpers)).toBe('');
   });
 });

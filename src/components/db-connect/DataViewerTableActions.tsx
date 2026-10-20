@@ -54,6 +54,7 @@ const isPg = (dbType: string | null) => dbType === 'postgresql';
 const q = (dbType: string | null, name: string) => isMysql(dbType) ? `\`${name.replace(/`/g, '``')}\`` : `"${name.replace(/"/g, '""')}"`;
 const downloadName = (name: string) => name.replace(/[^A-Za-z0-9_.-]+/g, '_');
 const EXPORT_PAGE_SIZE = 200;
+const MAX_RATE_LIMIT_RETRIES = 20;
 // One array element of pretty JSON, indented to sit inside the surrounding array (same layout as JSON.stringify(rows, null, 2)).
 const jsonRow = (row: Record<string, any>, pad: string) => JSON.stringify(row, null, 2).split('\n').map(line => pad + line).join('\n');
 const delimiterLabel = (value: string) => value === 'tab' ? 'Tab' : value === ';' ? 'Semicolon (;)' : 'Comma (,)';
@@ -129,6 +130,7 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
     let page = 1;
     let done = 0;
     let total = 0;
+    let rateLimited = 0;
     while (true) {
       const res = await apiFetch(`/api/catalogs/${connectionId}/records`, {
         method: 'POST',
@@ -136,6 +138,18 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
         body: JSON.stringify({ table: name, page, pageSize: EXPORT_PAGE_SIZE, withTotal: page === 1 }),
         signal,
       });
+      // The API allows 200 requests per minute per IP and a page is 200 rows, so big tables hit 429 mid-export:
+      // wait for the window to reopen and retry the same page instead of losing the whole export.
+      if (res.status === 429 && rateLimited < MAX_RATE_LIMIT_RETRIES) {
+        rateLimited += 1;
+        const seconds = Math.min(Math.max(Number(res.headers.get('Retry-After')) || 10, 1), 60);
+        setExportProgress(`${name}: ${done.toLocaleString()} of ${total.toLocaleString()} rows (rate limited, retrying in ${seconds}s)`);
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, seconds * 1000);
+          signal.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')); }, { once: true });
+        });
+        continue;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(`${name}: ${data.error || 'Failed to fetch records'} after ${done} rows`);
       if (page === 1) total = Number(data.total || 0);

@@ -13,6 +13,7 @@ import {
   executeInTransaction,
   fetchTableInfo,
   tableSqlFor,
+  validateDefaultColumns,
   validateRecordValues,
 } from "./record-helpers.js";
 
@@ -162,13 +163,15 @@ export async function updateRecord(req: ExpressRequest, res: ExpressResponse) {
       const statements = [];
       for (const item of updateList) {
         let normalizedValues;
+        let defaults: string[];
         try {
           normalizedValues = validateRecordValues(info.type, item.values, columnByName);
+          defaults = validateDefaultColumns(item.defaults, columnByName, item.values);
         } catch (err: any) {
           return res.status(400).json({ error: err.message || "Invalid update values" });
         }
         try {
-          const update = buildRecordUpdate(info.type, normalizedValues, item.key, allowedColumns);
+          const update = buildRecordUpdate(info.type, normalizedValues, item.key, allowedColumns, defaults);
           statements.push({ sql: `UPDATE ${tableSql}${update.sql}`, params: update.params });
         } catch (err: any) {
           return res.status(400).json({ error: err.message || "Invalid update options" });

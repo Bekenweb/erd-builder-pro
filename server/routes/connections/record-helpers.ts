@@ -161,7 +161,21 @@ export function buildRecordOrder(type: string, sort: RecordSortInput | undefined
   return parts.length ? ` ORDER BY ${parts.join(", ")}` : "";
 }
 
-export function buildRecordUpdate(type: string, values: Record<string, any>, key: Record<string, any>, allowedColumns: Set<string>) {
+// Columns that must be reset with the SQL DEFAULT keyword (not a literal string). Generated and primary-key columns are refused.
+export function validateDefaultColumns(columns: unknown, columnByName: Map<string, any>, values: Record<string, any> = {}) {
+  if (columns === undefined) return [];
+  if (!Array.isArray(columns) || columns.some(column => typeof column !== "string")) throw new Error("defaults must be a list of column names");
+  for (const name of columns) {
+    const column = columnByName.get(name);
+    if (!column) throw new Error(`Invalid default column: ${name}`);
+    if (column.is_pk) throw new Error(`Primary key column cannot be reset to default: ${name}`);
+    if (column.is_generated) throw new Error(`Generated column cannot be reset to default: ${name}`);
+    if (name in values) throw new Error(`Column cannot have both a value and DEFAULT: ${name}`);
+  }
+  return [...new Set(columns as string[])];
+}
+
+export function buildRecordUpdate(type: string, values: Record<string, any>, key: Record<string, any>, allowedColumns: Set<string>, defaults: string[] = []) {
   const params: any[] = [];
   const placeholder = () => type === "postgresql" ? `$${params.length}` : "?";
   const valueRef = (value: any) => {
@@ -173,6 +187,10 @@ export function buildRecordUpdate(type: string, values: Record<string, any>, key
     if (!allowedColumns.has(column)) throw new Error(`Invalid update column: ${column}`);
     return `${quoteIdentifier(type, column)} = ${valueRef(value)}`;
   });
+  for (const column of defaults) {
+    if (!allowedColumns.has(column)) throw new Error(`Invalid update column: ${column}`);
+    set.push(`${quoteIdentifier(type, column)} = DEFAULT`);
+  }
   const where = Object.entries(key).map(([column, value]) => {
     if (!allowedColumns.has(column)) throw new Error(`Invalid key column: ${column}`);
     return `${quoteIdentifier(type, column)} = ${valueRef(value)}`;
@@ -230,6 +248,9 @@ export function buildRecordWhere(type: string, filters: RecordFilterInput[] | un
     if (!column || !allowedColumns.has(column)) throw new Error(`Invalid filter column: ${column}`);
 
     const columnSql = quoteIdentifier(type, column);
+    // PostgreSQL has no ILIKE for numbers, dates or booleans (the default first-column filter hits an integer id),
+    // so text matching goes through a cast; MySQL converts implicitly.
+    const textSql = type === "postgresql" ? `CAST(${columnSql} AS TEXT)` : columnSql;
     const value = String(filter.value ?? "");
     const value2 = String(filter.value2 ?? "");
 
@@ -239,11 +260,11 @@ export function buildRecordWhere(type: string, filters: RecordFilterInput[] | un
     } else if (operator === "LIKE" || operator === "NOT LIKE") {
       if (!value) continue;
       const sqlOperator = type === "postgresql" ? operator.replace("LIKE", "ILIKE") : operator;
-      clauses.push(`${columnSql} ${sqlOperator} ${valueRef(value)}`);
+      clauses.push(`${textSql} ${sqlOperator} ${valueRef(value)}`);
     } else if (operator === "CONTAINS" || operator === "NOT CONTAINS") {
       if (!value) continue;
       const sqlOperator = operator === "NOT CONTAINS" ? "NOT LIKE" : "LIKE";
-      clauses.push(`${columnSql} ${type === "postgresql" ? sqlOperator.replace("LIKE", "ILIKE") : sqlOperator} ${valueRef(`%${value}%`)}`);
+      clauses.push(`${textSql} ${type === "postgresql" ? sqlOperator.replace("LIKE", "ILIKE") : sqlOperator} ${valueRef(`%${value}%`)}`);
     } else if (operator === "IN" || operator === "NOT IN") {
       const values = splitList(value);
       if (values.length === 0) continue;

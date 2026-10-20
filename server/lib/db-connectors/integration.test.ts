@@ -4,7 +4,7 @@ import mysql from "mysql2/promise";
 import { postgresqlConnector } from "./postgresql.js";
 import { mysqlConnector } from "./mysql.js";
 import type { ConnectionInfo, TableSchema } from "./types.js";
-import { buildRecordDelete, buildRecordInsert, buildRecordUpdate, buildRecordWhere } from "../../routes/connections/record-helpers.js";
+import { buildRecordDelete, buildRecordInsert, buildRecordUpdate, buildRecordWhere, validateDefaultColumns, validateRecordValues } from "../../routes/connections/record-helpers.js";
 import { buildStructureStatements } from "../../routes/connections/structure-helpers.js";
 
 const enabled = process.env.DB_CLIENT_INTEGRATION === "1";
@@ -135,6 +135,10 @@ suite("DB Client real database integration", () => {
     const filter = buildRecordWhere("postgresql", [{ enabled: true, column: "name", operator: "CONTAINS", value: "ali" }], allowedColumns);
     const selected = await pgClient.query(`SELECT name, role FROM integration_users${filter.sql}`, filter.params);
     expect(selected.rows).toEqual([{ name: "Alice", role: "member" }]);
+    // The default UI filter is "first column CONTAINS": on a bigint id it used to fail with "operator does not exist".
+    const numeric = buildRecordWhere("postgresql", [{ enabled: true, column: "id", operator: "CONTAINS", value: String(id) }], allowedColumns);
+    const byId = await pgClient.query(`SELECT name FROM integration_users${numeric.sql}`, numeric.params);
+    expect(byId.rows).toEqual([{ name: "Alice" }]);
     const deletion = buildRecordDelete("postgresql", { id }, allowedColumns);
     await pgClient.query(`DELETE FROM integration_users${deletion.sql}`, deletion.params);
   });
@@ -175,5 +179,90 @@ suite("DB Client real database integration", () => {
     expect(selected).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Bob", role: "member" })]));
     const deletion = buildRecordDelete("mysql", { id }, allowedColumns);
     await mysqlClient.query(`DELETE FROM integration_users${deletion.sql}`, deletion.params);
+  });
+  // NULL, empty string, DEFAULT, boolean, generated and primary-key columns must stay distinct end to end.
+  const cellColumns = (schema: TableSchema[]) => new Map<string, any>(table(schema, "integration_cells").columns.map(column => [column.name, column]));
+  const cellColumnNames = new Set(["id", "label", "tag", "active", "code"]);
+
+  it("keeps NULL, empty string, DEFAULT, boolean, generated and primary-key cells distinct on PostgreSQL", async () => {
+    await pgClient.query(`
+      DROP TABLE IF EXISTS integration_cells;
+      CREATE TABLE integration_cells (
+        id BIGSERIAL PRIMARY KEY,
+        label VARCHAR(40),
+        tag VARCHAR(20) DEFAULT 'none',
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        code TEXT GENERATED ALWAYS AS (upper(label)) STORED
+      )`);
+    try {
+      const columns = cellColumns(await postgresqlConnector.fetchSchema(pgClient, pgInfo));
+      const one = async () => (await pgClient.query("SELECT label, tag, active, code FROM integration_cells WHERE id = 1")).rows[0];
+      await pgClient.query("INSERT INTO integration_cells (id) VALUES (1)");
+      expect(await one()).toEqual({ label: null, tag: "none", active: true, code: null });
+
+      const update = async (values: Record<string, any>, defaults: string[] = []) => {
+        const checked = validateRecordValues("postgresql", values, columns);
+        const built = buildRecordUpdate("postgresql", checked, { id: 1 }, cellColumnNames, validateDefaultColumns(defaults, columns, values));
+        await pgClient.query(`UPDATE integration_cells${built.sql}`, built.params);
+      };
+      await update({ label: "" });
+      expect(await one()).toMatchObject({ label: "", code: "" });
+      await update({ label: null });
+      expect(await one()).toMatchObject({ label: null, code: null });
+      await update({ tag: "custom" });
+      await update({}, ["tag"]);
+      expect((await one()).tag).toBe("none");
+      await update({ active: 0 });
+      expect((await one()).active).toBe(false);
+
+      expect(() => validateRecordValues("postgresql", { code: "X" }, columns)).toThrow("Generated column");
+      expect(() => validateRecordValues("postgresql", { id: 9 }, columns)).toThrow("Primary key");
+      expect(() => validateDefaultColumns(["code"], columns)).toThrow("Generated column");
+      expect(() => validateDefaultColumns(["id"], columns)).toThrow("Primary key");
+      expect(() => validateRecordValues("postgresql", { active: true }, columns)).toThrow("0 or 1");
+    } finally {
+      await pgClient.query("DROP TABLE IF EXISTS integration_cells");
+    }
+  });
+
+  it("keeps NULL, empty string, DEFAULT, boolean, generated and primary-key cells distinct on MySQL", async () => {
+    await mysqlClient.query("DROP TABLE IF EXISTS integration_cells");
+    await mysqlClient.query(`
+      CREATE TABLE integration_cells (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        label VARCHAR(40) NULL,
+        tag VARCHAR(20) NULL DEFAULT 'none',
+        active TINYINT(1) NOT NULL DEFAULT 1,
+        code VARCHAR(40) GENERATED ALWAYS AS (UPPER(label)) STORED
+      )`);
+    try {
+      const columns = cellColumns(await mysqlConnector.fetchSchema(mysqlClient, mysqlInfo));
+      const one = async () => ((await mysqlClient.query("SELECT label, tag, active, code FROM integration_cells WHERE id = 1"))[0] as any[])[0];
+      await mysqlClient.query("INSERT INTO integration_cells (id) VALUES (1)");
+      expect(await one()).toEqual({ label: null, tag: "none", active: 1, code: null });
+
+      const update = async (values: Record<string, any>, defaults: string[] = []) => {
+        const checked = validateRecordValues("mysql", values, columns);
+        const built = buildRecordUpdate("mysql", checked, { id: 1 }, cellColumnNames, validateDefaultColumns(defaults, columns, values));
+        await mysqlClient.query(`UPDATE integration_cells${built.sql}`, built.params);
+      };
+      await update({ label: "" });
+      expect(await one()).toMatchObject({ label: "", code: "" });
+      await update({ label: null });
+      expect(await one()).toMatchObject({ label: null, code: null });
+      await update({ tag: "custom" });
+      await update({}, ["tag"]);
+      expect((await one()).tag).toBe("none");
+      await update({ active: 0 });
+      expect((await one()).active).toBe(0);
+
+      expect(() => validateRecordValues("mysql", { code: "X" }, columns)).toThrow("Generated column");
+      expect(() => validateRecordValues("mysql", { id: 9 }, columns)).toThrow("Primary key");
+      expect(() => validateDefaultColumns(["code"], columns)).toThrow("Generated column");
+      expect(() => validateDefaultColumns(["id"], columns)).toThrow("Primary key");
+      expect(() => validateRecordValues("mysql", { active: 2 }, columns)).toThrow("0 or 1");
+    } finally {
+      await mysqlClient.query("DROP TABLE IF EXISTS integration_cells");
+    }
   });
 });
