@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
-import { createColumnHelpers, draftValue, submitValue } from '@/components/db-connect/data-viewer-utils';
+import { createColumnHelpers, draftValue, isDefaultValue, submitValue } from '@/components/db-connect/data-viewer-utils';
 
 type Draft = { rowKey: string; column: string; key: Record<string, any>; value: any };
 
@@ -8,7 +8,7 @@ type Args = {
   activeTable: string | null;
   columnHelpers: ReturnType<typeof createColumnHelpers>;
   primaryKeyColumns: string[];
-  updateRecords: (table: string, updates: { key: Record<string, any>; values: Record<string, any> }[]) => Promise<any>;
+  updateRecords: (table: string, updates: { key: Record<string, any>; values: Record<string, any>; defaults?: string[] }[]) => Promise<any>;
 };
 
 export function useInlineRecordDrafts({ activeTable, columnHelpers, primaryKeyColumns, updateRecords }: Args) {
@@ -30,14 +30,15 @@ export function useInlineRecordDrafts({ activeTable, columnHelpers, primaryKeyCo
 
   const save = useCallback(async () => {
     if (!activeTable || count === 0) return;
-    const grouped = new Map<string, { key: Record<string, any>; values: Record<string, any> }>();
+    const grouped = new Map<string, { key: Record<string, any>; values: Record<string, any>; defaults: string[] }>();
     Object.values(drafts).forEach(draft => {
-      const entry = grouped.get(draft.rowKey) || { key: draft.key, values: {} };
-      entry.values[draft.column] = draft.value === null ? null : submitValue(draft.column, draft.value, columnHelpers);
+      const entry = grouped.get(draft.rowKey) || { key: draft.key, values: {}, defaults: [] };
+      if (isDefaultValue(draft.value)) entry.defaults.push(draft.column);
+      else entry.values[draft.column] = draft.value === null ? null : submitValue(draft.column, draft.value, columnHelpers);
       grouped.set(draft.rowKey, entry);
     });
     try {
-      await updateRecords(activeTable, [...grouped.values()]);
+      await updateRecords(activeTable, [...grouped.values()].map(({ defaults, ...entry }) => defaults.length ? { ...entry, defaults } : entry));
       setDrafts({});
       toast.success(`${count} cell${count === 1 ? '' : 's'} updated`);
     } catch (err: any) {

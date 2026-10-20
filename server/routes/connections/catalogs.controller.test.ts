@@ -3,7 +3,7 @@ import initSqlJs from "sql.js";
 import { sqliteConnector } from "../../lib/db-connectors/sqlite.js";
 import { postgresqlConnector } from "../../lib/db-connectors/postgresql.js";
 import { buildRecordDelete, buildRecordInsert, buildRecordUpdate, buildRecordWhere, validateRecordValues } from "./catalogs.controller.js";
-import { buildRecordOrder, executeInTransaction, fetchTableInfo, tableSqlFor } from "./record-helpers.js";
+import { buildRecordOrder, executeInTransaction, fetchTableInfo, tableSqlFor, validateDefaultColumns } from "./record-helpers.js";
 import { buildExplainQuery, buildLimitedSelectQuery, normalizeSelectQuery } from "./query-helpers.js";
 import { buildConstraintStatements, buildCreateTableSql, buildIndexStatements, buildStructureStatements, removedEnumValues } from "./structure-helpers.js";
 import { extractMySqlCreatedTables, MAX_SQL_IMPORT_BYTES, normalizeMySqlCreateTableDefaults, splitSqlStatements, validateImportSql } from "./structure.controller.js";
@@ -146,7 +146,7 @@ describe("buildRecordWhere", () => {
     ], columns);
 
     expect(where).toEqual({
-      sql: ' WHERE "email" ILIKE $1 AND "role" ILIKE $2',
+      sql: ' WHERE CAST("email" AS TEXT) ILIKE $1 AND CAST("role" AS TEXT) ILIKE $2',
       params: ["%admin%", "%owner%"],
     });
   });
@@ -669,5 +669,33 @@ describe("stable record pages and parent search", () => {
     });
     expect(buildRecordWhere("postgresql", [], allowed, { value: "  " })).toEqual({ sql: "", params: [] });
     expect(() => buildRecordWhere("postgresql", [], allowed, { value: "x", columns: ["password"] })).toThrow("Invalid search column");
+  });
+});
+
+describe("SQL DEFAULT resets", () => {
+  const columns = new Map<string, any>([
+    ["id", { name: "id", is_pk: true }],
+    ["role", { name: "role", type: "text", is_nullable: false }],
+    ["code", { name: "code", type: "text", is_generated: true }],
+  ]);
+
+  it("emits the DEFAULT keyword instead of a parameter, for both dialects", () => {
+    const allowed = new Set(["id", "role", "name"]);
+    expect(buildRecordUpdate("postgresql", { name: "A" }, { id: 7 }, allowed, ["role"])).toEqual({
+      sql: ' SET "name" = $1, "role" = DEFAULT WHERE "id" = $2',
+      params: ["A", 7],
+    });
+    expect(buildRecordUpdate("mysql", {}, { id: 7 }, allowed, ["role"])).toEqual({ sql: " SET `role` = DEFAULT WHERE `id` = ?", params: [7] });
+    expect(() => buildRecordUpdate("mysql", {}, { id: 7 }, allowed, ["nope"])).toThrow("Invalid update column");
+  });
+
+  it("refuses DEFAULT for primary key, generated, unknown, or doubly-set columns", () => {
+    expect(validateDefaultColumns(undefined, columns)).toEqual([]);
+    expect(validateDefaultColumns(["role", "role"], columns)).toEqual(["role"]);
+    expect(() => validateDefaultColumns(["id"], columns)).toThrow("Primary key");
+    expect(() => validateDefaultColumns(["code"], columns)).toThrow("Generated column");
+    expect(() => validateDefaultColumns(["missing"], columns)).toThrow("Invalid default column");
+    expect(() => validateDefaultColumns(["role"], columns, { role: "x" })).toThrow("both a value and DEFAULT");
+    expect(() => validateDefaultColumns("role", columns)).toThrow("list of column names");
   });
 });
