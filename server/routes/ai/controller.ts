@@ -29,8 +29,12 @@ async function resolveRequestUserId(req: Request): Promise<string | undefined> {
   return undefined;
 }
 
+// Long Plan conversations can take tens of seconds before the provider sends headers; stay under the tunnel's 100 s idle limit.
+export const AI_PROVIDER_FIRST_BYTE_TIMEOUT_MS = 60_000;
+
 export async function proxy(req: Request, res: Response): Promise<void> {
   let aborted = false;
+  let timedOut = false;
   let cloudCreditReserved = false;
   let cloudCreditFinalized = false;
   let cloudRequestId = "";
@@ -44,13 +48,14 @@ export async function proxy(req: Request, res: Response): Promise<void> {
     controller.abort();
   });
 
-  // Safety timeout: 30s for first byte, then auto-abort
+  // Safety timeout for the provider's first byte, then auto-abort
   const timeout = setTimeout(() => {
     if (!aborted) {
       aborted = true;
+      timedOut = true;
       controller.abort();
     }
-  }, 30_000);
+  }, AI_PROVIDER_FIRST_BYTE_TIMEOUT_MS);
 
   try {
     let {
@@ -272,6 +277,12 @@ export async function proxy(req: Request, res: Response): Promise<void> {
     if (cloudCreditReserved && !cloudCreditFinalized) {
       await finalizeCloudAiCredit(cloudRequestId, cloudProviderResponded, cloudProviderResponded ? "CLOUD_AI_STREAM_FAILED" : "CLOUD_AI_SERVICE_UNAVAILABLE");
       cloudCreditFinalized = true;
+    }
+    // A timeout leaves the client connection open; answer it instead of letting the request hang until the browser gives up.
+    if (timedOut && !res.headersSent) {
+      logger.warn({ error_code: "AI_PROVIDER_TIMEOUT", timeout_ms: AI_PROVIDER_FIRST_BYTE_TIMEOUT_MS }, "AI provider did not respond in time");
+      res.status(504).json({ error: "The AI provider did not respond in time. Try again.", code: "AI_PROVIDER_TIMEOUT" });
+      return;
     }
     if (aborted) return;
     logger.error({ err: err }, "AI proxy error:");

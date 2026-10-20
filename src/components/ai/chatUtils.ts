@@ -249,3 +249,8 @@ export function stripAiFluff(content: string): string {
   // If stripping removed everything, return original
   return result || content.trim();
 }
+
+/** The other pane's AI scope for a reply written for that file; undefined when the reply belongs to the focused file or its pane is closed. */
+export function replyPaneTarget<T>(originKey: string | undefined, focusedKey: string | null, getPaneAI?: (key: string) => T | undefined): T | undefined {
+  return originKey && originKey !== focusedKey ? getPaneAI?.(originKey) : undefined;
+}

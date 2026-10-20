@@ -129,6 +129,8 @@ function AppLayoutInner({ root, session, mainAI, paired, onPairChange, onFocused
   const location = useLocation();
   const navigate = useNavigate();
   const [tabsTarget, setTabsTarget] = useState<HTMLDivElement | null>(null);
+  const paneAIRef = useRef<((key: string) => AIActionContextValue | undefined) | null>(null);
+  const getPaneAI = useCallback((key: string) => paneAIRef.current?.(key), []);
   const [propertiesEntityId, setPropertiesEntityId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
@@ -876,7 +878,7 @@ function AppLayoutInner({ root, session, mainAI, paired, onPairChange, onFocused
               <p className="mt-4 text-sm font-medium text-muted-foreground">Loading workspace…</p>
             </div>
           ) : (
-            <FileWorkspace root={root} mainAI={mainAI} teamState={teamState} discussionTarget={discussionTarget} onFocusedSession={onFocusedSession} onPairChange={onPairChange}><Outlet key={teamScopeVersion} context={teamState} /></FileWorkspace>
+            <FileWorkspace root={root} mainAI={mainAI} teamState={teamState} discussionTarget={discussionTarget} onFocusedSession={onFocusedSession} onPairChange={onPairChange} paneAIRef={paneAIRef}><Outlet key={teamScopeVersion} context={teamState} /></FileWorkspace>
           )}
         </div>
 
@@ -1149,6 +1151,7 @@ function AppLayoutInner({ root, session, mainAI, paired, onPairChange, onFocused
                       flowcharts={flowcharts}
                       drawings={drawings}
                       activeNoteContent={entityContext?.entityType === 'note' ? activeNote?.content : undefined}
+                      getPaneAI={getPaneAI}
                     />
                   </div>
                 )}

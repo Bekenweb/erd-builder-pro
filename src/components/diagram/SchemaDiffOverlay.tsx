@@ -72,7 +72,7 @@ export function SchemaDiffOverlay({
   const allSelected = approvedIds.length === allIds.length;
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-50 flex flex-col items-center justify-center gap-2.5 px-3">
+    <div data-pending-review className="pointer-events-none absolute inset-x-0 bottom-4 z-50 flex flex-col items-center justify-center gap-2.5 px-3">
       {showChecklist && (
         <div className="pointer-events-auto w-[min(560px,100%)] rounded-2xl border bg-popover/95 p-4 shadow-2xl backdrop-blur-md">
           <div className="mb-3 flex items-center justify-between gap-3">

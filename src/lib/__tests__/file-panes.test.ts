@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { assertNoCommentDraft, flushChildPanes, PANE_FLUSH_CHILDREN, paneKey, paneRequest, paneUrl, validPaneFile, type PaneFile } from '../file-panes';
+import { assertNoCommentDraft, assertNoPendingReview, flushChildPanes, PANE_FLUSH_CHILDREN, paneKey, paneRequest, paneUrl, validPaneFile, type PaneFile } from '../file-panes';
 
 const note: PaneFile = { type: 'notes', uid: 'a', title: 'Notes', projectId: '1' };
 const erd: PaneFile = { ...note, type: 'erd', uid: 'b', title: 'Schema' };
@@ -51,5 +51,11 @@ describe('COL-006 file panes', () => {
     const closedPanel = { querySelectorAll: () => [{ value: '' }] } as unknown as ParentNode;
     expect(() => assertNoCommentDraft(closedPanel)).not.toThrow();
     expect(assertNoCommentDraft).toThrow('comment draft');
+  });
+  it('blocks closing a file whose AI changes are still waiting for review', () => {
+    const reviewing = { querySelectorAll: () => [{}] } as unknown as ParentNode;
+    const idle = { querySelectorAll: () => [] } as unknown as ParentNode;
+    expect(() => assertNoPendingReview(reviewing)).toThrow('pending AI changes');
+    expect(() => assertNoPendingReview(idle)).not.toThrow();
   });
 });

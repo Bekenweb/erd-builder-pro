@@ -16,6 +16,7 @@ import {
   SelectItem, SelectGroup, SelectLabel,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { useProjectFiles } from './useProjectFiles';
 import { extractDBML, extractSQL } from './chatUtils';
 
 export interface ErdFromSqlDialogProps {
@@ -35,7 +36,7 @@ export interface ErdFromSqlDialogProps {
 export function ErdFromSqlDialog({
   schema,
   onClose,
-  diagrams,
+  diagrams: workspaceDiagrams,
   targetProjectId,
   erdDefaultName = 'New ERD',
   handleSidebarDiagramCreate,
@@ -45,6 +46,7 @@ export function ErdFromSqlDialog({
   onCreated,
   onUpdated,
 }: ErdFromSqlDialogProps) {
+  const diagrams = useProjectFiles('diagrams', targetProjectId, workspaceDiagrams);
   const [erdMode, setErdMode] = useState<'create' | 'update' | null>(null);
   const [erdUpdateUid, setErdUpdateUid] = useState<string | null>(null);
   const [erdExistingData, setErdExistingData] = useState<{ nodes: Node<Entity>[]; edges: Edge[] } | null>(null);

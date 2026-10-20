@@ -1,6 +1,8 @@
 import { Replace, ArrowDownToLine, Copy, Check, Database, GitBranch, FileText } from 'lucide-react';
 import { hasFlowchartJSON, hasSchemaContent, extractSchemaContent, extractFlowchartJSON } from './chatUtils';
 
+export type ApplyTarget = Pick<AssistantMessageActionsProps, 'hasContentHandler' | 'contentHandlerStrategies' | 'contentCheckType' | 'lastActionId' | 'applyContent'>;
+
 export interface AssistantMessageActionsProps {
   content: string;
   msgId: string;

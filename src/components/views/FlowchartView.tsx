@@ -41,6 +41,7 @@ import { FlowchartPreviewModal } from '@/components/flowchart/FlowchartPreviewMo
 import { FlowchartExportModal } from '@/components/flowchart/FlowchartExportModal';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
 import { autoLayoutFlowchart } from '@/lib/autoLayoutFlowchart';
+import { isPendingFlowchartTarget, PENDING_FLOWCHART_EVENT, PENDING_FLOWCHART_TARGET } from '@/lib/pending-flowchart';
 import { useWorkspace } from '@/providers/WorkspaceContext';
 import type { FlowchartExportHandler } from '@/providers/WorkspaceContext';
 import { PrepareCommentAnchor, type CommentAnchor } from '@/components/diagram/ERDComments';
@@ -96,6 +97,7 @@ export const FlowchartView = React.memo(({
   const isParsingFromDataRef = React.useRef(false);
   const isDraggingRef = React.useRef(false);
   const pendingContentAppliedRef = React.useRef(false);
+  const { fitView } = useReactFlow();
   const lastFlowchartIdRef = React.useRef(activeFlowchartId);
   const isEditingEdgeRef = React.useRef(false);
   const isEditingNodeRef = React.useRef(false);
@@ -637,64 +639,78 @@ export const FlowchartView = React.memo(({
 
   useEffect(() => {
     if (companionMode) return;
-    const pendingFlowchart = localStorage.getItem('pending_create_flowchart_json');
-    if (pendingFlowchart) {
-      localStorage.removeItem('pending_create_flowchart_json');
-      const result = previewFlowchartContent(pendingFlowchart);
-      if (result && result.nodes.length > 0) {
-        pendingContentAppliedRef.current = true;
-        takeSnapshot(nodesRef.current, edgesRef.current);
-        setNodes(result.nodes);
-        setEdges(result.edges);
+    const consumePending = () => {
+      // A stale hand-off must not land in whichever flowchart opens next.
+      if (!isPendingFlowchartTarget(activeFlowchart, localStorage.getItem(PENDING_FLOWCHART_TARGET))) return;
+      const pendingFlowchart = localStorage.getItem('pending_create_flowchart_json');
+      if (pendingFlowchart) {
+        localStorage.removeItem(PENDING_FLOWCHART_TARGET);
+        localStorage.removeItem('pending_create_flowchart_json');
+        const result = previewFlowchartContent(pendingFlowchart);
+        if (result && result.nodes.length > 0) {
+          pendingContentAppliedRef.current = true;
+          takeSnapshot(nodesRef.current, edgesRef.current);
+          setNodes(result.nodes);
+          setEdges(result.edges);
         
-        // Save immediately to DB to prevent empty state on reload
-        const dataString = JSON.stringify({ nodes: result.nodes, edges: result.edges });
-        if (saveFlowchart && activeFlowchart) {
-          saveFlowchart({
-            ...activeFlowchart,
-            data: dataString
-          }).then(() => {
-            triggerDebouncedSync?.();
-          }).catch(err => {
-            console.error('Error saving generated flowchart:', err);
-          });
-        } else {
-          handleFlowchartChange(result.nodes, result.edges);
-        }
+          // Save immediately to DB to prevent empty state on reload
+          const dataString = JSON.stringify({ nodes: result.nodes, edges: result.edges });
+          if (saveFlowchart && activeFlowchart) {
+            saveFlowchart({
+              ...activeFlowchart,
+              data: dataString
+            }).then(() => {
+              triggerDebouncedSync?.();
+            }).catch(err => {
+              console.error('Error saving generated flowchart:', err);
+            });
+          } else {
+            handleFlowchartChange(result.nodes, result.edges);
+          }
         
+          // An already-open pane keeps its old viewport, which can hide the new symbols.
+        setTimeout(() => fitView({ padding: 0.2 }), 50);
         toast.success('Applied generated architecture Flowchart to new canvas');
-      }
-    }
-
-    // Update mode: replace existing flowchart with AI-generated content
-    const pendingUpdateFlowchart = localStorage.getItem('pending_update_flowchart_json');
-    if (pendingUpdateFlowchart) {
-      localStorage.removeItem('pending_update_flowchart_json');
-      const result = previewFlowchartContent(pendingUpdateFlowchart);
-      if (result && result.nodes.length > 0) {
-        pendingContentAppliedRef.current = true;
-        takeSnapshot(nodesRef.current, edgesRef.current);
-        setNodes(result.nodes);
-        setEdges(result.edges);
-        
-        const dataString = JSON.stringify({ nodes: result.nodes, edges: result.edges });
-        if (saveFlowchart && activeFlowchart) {
-          saveFlowchart({
-            ...activeFlowchart,
-            data: dataString
-          }).then(() => {
-            triggerDebouncedSync?.();
-          }).catch(err => {
-            console.error('Error updating flowchart:', err);
-          });
-        } else {
-          handleFlowchartChange(result.nodes, result.edges);
         }
-        
-        toast.success('Updated Flowchart with AI-generated content');
       }
-    }
-  }, [companionMode, setNodes, setEdges, takeSnapshot, handleFlowchartChange, saveFlowchart, activeFlowchart, triggerDebouncedSync]);
+
+      // Update mode: replace existing flowchart with AI-generated content
+      const pendingUpdateFlowchart = localStorage.getItem('pending_update_flowchart_json');
+      if (pendingUpdateFlowchart) {
+        localStorage.removeItem('pending_update_flowchart_json');
+        localStorage.removeItem(PENDING_FLOWCHART_TARGET);
+        const result = previewFlowchartContent(pendingUpdateFlowchart);
+        if (result && result.nodes.length > 0) {
+          pendingContentAppliedRef.current = true;
+          takeSnapshot(nodesRef.current, edgesRef.current);
+          setNodes(result.nodes);
+          setEdges(result.edges);
+        
+          const dataString = JSON.stringify({ nodes: result.nodes, edges: result.edges });
+          if (saveFlowchart && activeFlowchart) {
+            saveFlowchart({
+              ...activeFlowchart,
+              data: dataString
+            }).then(() => {
+              triggerDebouncedSync?.();
+            }).catch(err => {
+              console.error('Error updating flowchart:', err);
+            });
+          } else {
+            handleFlowchartChange(result.nodes, result.edges);
+          }
+        
+          // An already-open pane keeps its old viewport, which can hide the new symbols.
+        setTimeout(() => fitView({ padding: 0.2 }), 50);
+        toast.success('Updated Flowchart with AI-generated content');
+        }
+      }
+    };
+    consumePending();
+    // The target may already be open in a side-by-side pane, where no remount re-runs this effect.
+    window.addEventListener(PENDING_FLOWCHART_EVENT, consumePending);
+    return () => window.removeEventListener(PENDING_FLOWCHART_EVENT, consumePending);
+  }, [companionMode, setNodes, setEdges, takeSnapshot, handleFlowchartChange, saveFlowchart, activeFlowchart, triggerDebouncedSync, fitView]);
 
   const handleConfirmAppend = useCallback((replaceGroupSection?: string) => {
     const content = pendingContentRef.current;
