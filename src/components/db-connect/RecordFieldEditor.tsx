@@ -23,6 +23,8 @@ type RecordFieldEditorProps = {
   datePickerOpenColumn: string | null;
   draftRow: Record<string, any>;
   fkOptionsByColumn: Record<string, Record<string, any>[]>;
+  fkSearch?: string;
+  onFkSearch?: (value: string) => void;
   foreignKeyByColumn: Map<string, any>;
   selectedRow: Record<string, any> | null;
   allowPrimaryKey?: boolean;
@@ -36,6 +38,8 @@ export function RecordFieldEditor({
   datePickerOpenColumn,
   draftRow,
   fkOptionsByColumn,
+  fkSearch = '',
+  onFkSearch,
   foreignKeyByColumn,
   selectedRow,
   allowPrimaryKey = false,
@@ -93,13 +97,24 @@ export function RecordFieldEditor({
       : options;
 
     return (
+      <>
+      {onFkSearch && (
+        <Input
+          type="search"
+          value={fkSearch}
+          onChange={e => onFkSearch(e.target.value)}
+          aria-label={`Search ${fk.ref_table} for ${column}`}
+          placeholder={`Search ${fk.ref_table}…`}
+          className="mt-1 h-7 text-xs"
+        />
+      )}
       <Select value={String(current)} onValueChange={value => setDraftRow(prev => ({ ...prev, [column]: value }))}>
         <SelectTrigger id={fieldId} className="mt-1 h-8 font-mono text-xs">
           <SelectValue>{String(current)}</SelectValue>
         </SelectTrigger>
         <SelectContent alignItemWithTrigger={false} className="max-h-64">
           {mergedOptions.length === 0 ? (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">No parent records</div>
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{fkSearch ? 'No matching parent records' : 'No parent records'}</div>
           ) : mergedOptions.map((row: any) => {
             const value = String(row[fk.ref_column]);
             const labelColumn = Object.keys(row).find(key => key !== fk.ref_column && row[key] !== null && row[key] !== undefined);
@@ -108,6 +123,7 @@ export function RecordFieldEditor({
           })}
         </SelectContent>
       </Select>
+      </>
     );
   }
 

@@ -145,12 +145,20 @@ export function validateRecordValues(type: string, values: Record<string, any>, 
   return normalized;
 }
 
-export function buildRecordOrder(type: string, sort: RecordSortInput | undefined, allowedColumns: Set<string>) {
-  if (!sort?.column) return "";
-  const direction = String(sort.direction || "").toLowerCase();
-  if (!allowedColumns.has(sort.column)) throw new Error(`Invalid sort column: ${sort.column}`);
-  if (direction !== "asc" && direction !== "desc") throw new Error("Invalid sort direction");
-  return ` ORDER BY ${quoteIdentifier(type, sort.column)} ${direction.toUpperCase()}`;
+// Pages are only stable with a total order: default to the primary key and use it as tie-breaker for
+// non-unique sorts. Tables without a primary key keep the database's (unstable) order.
+export function buildRecordOrder(type: string, sort: RecordSortInput | undefined, allowedColumns: Set<string>, primaryKey: string[] = []) {
+  const parts: string[] = [];
+  if (sort?.column) {
+    const direction = String(sort.direction || "").toLowerCase();
+    if (!allowedColumns.has(sort.column)) throw new Error(`Invalid sort column: ${sort.column}`);
+    if (direction !== "asc" && direction !== "desc") throw new Error("Invalid sort direction");
+    parts.push(`${quoteIdentifier(type, sort.column)} ${direction.toUpperCase()}`);
+  }
+  for (const column of primaryKey) {
+    if (column !== sort?.column && allowedColumns.has(column)) parts.push(`${quoteIdentifier(type, column)} ASC`);
+  }
+  return parts.length ? ` ORDER BY ${parts.join(", ")}` : "";
 }
 
 export function buildRecordUpdate(type: string, values: Record<string, any>, key: Record<string, any>, allowedColumns: Set<string>) {
@@ -206,7 +214,7 @@ export function buildRecordDelete(type: string, key: Record<string, any>, allowe
   return { sql: ` WHERE ${where.join(" AND ")}`, params };
 }
 
-export function buildRecordWhere(type: string, filters: RecordFilterInput[] | undefined, allowedColumns: Set<string>) {
+export function buildRecordWhere(type: string, filters: RecordFilterInput[] | undefined, allowedColumns: Set<string>, search?: { value?: string; columns?: string[] }) {
   const clauses: string[] = [];
   const params: string[] = [];
   const placeholder = () => type === "postgresql" ? `$${params.length}` : "?";
@@ -250,6 +258,19 @@ export function buildRecordWhere(type: string, filters: RecordFilterInput[] | un
     } else {
       throw new Error(`Invalid filter operator: ${operator}`);
     }
+  }
+
+  // Free-text lookup (FK parent search): OR across columns cast to text, so numeric keys and labels both match.
+  const searchValue = String(search?.value ?? "").trim();
+  if (searchValue) {
+    const columns = (search?.columns?.length ? search.columns : [...allowedColumns]).slice(0, 20);
+    for (const column of columns) if (!allowedColumns.has(column)) throw new Error(`Invalid search column: ${column}`);
+    const pattern = `%${searchValue.replace(/[\\%_]/g, char => `\\${char}`)}%`;
+    const likes = columns.map(column => {
+      const text = type === "mysql" ? `CAST(${quoteIdentifier(type, column)} AS CHAR)` : `CAST(${quoteIdentifier(type, column)} AS TEXT)`;
+      return `${text} ${type === "postgresql" ? "ILIKE" : "LIKE"} ${valueRef(pattern)}`;
+    });
+    if (likes.length) clauses.push(`(${likes.join(" OR ")})`);
   }
 
   return {

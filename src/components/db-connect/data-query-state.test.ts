@@ -10,6 +10,13 @@ describe('sqlToRun', () => {
     expect(sqlToRun(sql, sql.length, sql.length)).toBe('SELECT * FROM users');
   });
 
+  it('does not split on semicolons inside literals or comments', () => {
+    const sql = "SELECT 'a; b' AS x -- c;\nFROM t;\nSELECT /* ; */ 2;";
+    expect(sqlToRun(sql, 3, 3)).toBe("SELECT 'a; b' AS x -- c;\nFROM t");
+    expect(sqlToRun(sql, sql.length - 3, sql.length - 3)).toBe('SELECT /* ; */ 2');
+    expect(sqlToRun("SELECT pg_sleep(4), 'update; drop' AS note", 10, 10)).toBe("SELECT pg_sleep(4), 'update; drop' AS note");
+  });
+
   it('keeps the live script during delayed tab-state updates', () => {
     const tab = (key: string, script: string) => ({ key, script, id: null, groupName: '', name: '', result: null, resultPage: 1, error: null } as QueryTab);
     expect(reconcileLiveTab(tab('a', 'SELECT j'), tab('a', 'SELECT jurusans'))?.script).toBe('SELECT jurusans');

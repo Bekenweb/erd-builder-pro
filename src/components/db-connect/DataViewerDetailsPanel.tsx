@@ -10,6 +10,8 @@ type DataViewerDetailsPanelProps = {
   datePickerOpenColumn: string | null;
   draftRow: Record<string, any>;
   fkOptionsByColumn: Record<string, Record<string, any>[]>;
+  fkSearchByColumn: Record<string, string>;
+  onFkSearch: (column: string, value: string) => void;
   foreignKeyByColumn: Map<string, any>;
   isRecordDirty: boolean;
   isCreatingRecord: boolean;
@@ -33,6 +35,8 @@ export function DataViewerDetailsPanel({
   datePickerOpenColumn,
   draftRow,
   fkOptionsByColumn,
+  fkSearchByColumn,
+  onFkSearch,
   foreignKeyByColumn,
   isRecordDirty,
   isCreatingRecord,
@@ -75,6 +79,8 @@ export function DataViewerDetailsPanel({
                       datePickerOpenColumn={datePickerOpenColumn}
                       draftRow={draftRow}
                       fkOptionsByColumn={fkOptionsByColumn}
+                      fkSearch={fkSearchByColumn[column] ?? ''}
+                      onFkSearch={value => onFkSearch(column, value)}
                       foreignKeyByColumn={foreignKeyByColumn}
                       selectedRow={editableRow}
                       allowPrimaryKey={isCreatingRecord}

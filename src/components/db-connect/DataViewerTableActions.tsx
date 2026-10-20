@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Copy, Download, MoreHorizontal, Scissors, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
@@ -53,6 +53,9 @@ const isMysql = (dbType: string | null) => dbType === 'mysql';
 const isPg = (dbType: string | null) => dbType === 'postgresql';
 const q = (dbType: string | null, name: string) => isMysql(dbType) ? `\`${name.replace(/`/g, '``')}\`` : `"${name.replace(/"/g, '""')}"`;
 const downloadName = (name: string) => name.replace(/[^A-Za-z0-9_.-]+/g, '_');
+const EXPORT_PAGE_SIZE = 200;
+// One array element of pretty JSON, indented to sit inside the surrounding array (same layout as JSON.stringify(rows, null, 2)).
+const jsonRow = (row: Record<string, any>, pad: string) => JSON.stringify(row, null, 2).split('\n').map(line => pad + line).join('\n');
 const delimiterLabel = (value: string) => value === 'tab' ? 'Tab' : value === ';' ? 'Semicolon (;)' : 'Comma (,)';
 const decimalLabel = (value: string) => value === ',' ? 'Comma decimal (,)' : 'Dot decimal (.)';
 
@@ -112,52 +115,69 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
   const singleExport = targetTables.length === 1;
   const supportsTableMutation = !readOnlyReason && (isMysql(dbType) || isPg(dbType));
 
-  const fetchRows = async (name: string): Promise<{ columns: string[]; rows: RowData[] }> => {
+  const exportAbortRef = useRef<AbortController | null>(null);
+  const [exportProgress, setExportProgress] = useState<string | null>(null);
+
+  // Reads one table page by page (stable PK order from the server) and hands each page to onPage, so rows are
+  // turned into output text immediately instead of being collected for every table at once.
+  const forEachPage = async (item: any, signal: AbortSignal, onPage: (cols: string[], rows: RowData[]) => void) => {
+    const name = item.table_name;
+    if (rowsOverride) {
+      onPage((item.columns || []).map((col: any) => String(col.name || '')).filter(Boolean), rowsOverride);
+      return;
+    }
     let page = 1;
-    const rows: RowData[] = [];
-    let cols: string[] = [];
+    let done = 0;
+    let total = 0;
     while (true) {
       const res = await apiFetch(`/api/catalogs/${connectionId}/records`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table: name, page, pageSize: 200 }),
+        body: JSON.stringify({ table: name, page, pageSize: EXPORT_PAGE_SIZE, withTotal: page === 1 }),
+        signal,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to fetch records');
-      cols = (data.columns || cols).map(String);
-      rows.push(...(data.rows || []));
-      if (rows.length >= Number(data.total || rows.length)) return { columns: cols, rows };
+      if (!res.ok) throw new Error(`${name}: ${data.error || 'Failed to fetch records'} after ${done} rows`);
+      if (page === 1) total = Number(data.total || 0);
+      const rows: RowData[] = data.rows || [];
+      onPage((data.columns || []).map(String), rows);
+      done += rows.length;
+      setExportProgress(`${name}: ${done.toLocaleString()} of ${total.toLocaleString()} rows`);
+      if (rows.length < EXPORT_PAGE_SIZE || done >= total) return;
       page += 1;
     }
   };
 
-  const exportTable = async (item: any) => {
+  const exportTable = async (item: any, signal: AbortSignal, parts: string[]) => {
     const name = item.table_name;
     const picked: string[] = singleExport ? selectedColumns : (item.columns || []).map((col: any) => String(col.name || '')).filter(Boolean);
-    const data = rowsOverride
-      ? { rows: rowsOverride, columns: (item.columns || []).map((col: any) => String(col.name || '')).filter(Boolean) }
-      : includeContents || format !== 'sql' ? await fetchRows(name) : { rows: [], columns: picked };
-    const cols: string[] = picked.length ? picked : data.columns;
-    if (format === 'json') return JSON.stringify(data.rows.map(row => Object.fromEntries(cols.map(col => [col, row[col]]))), null, 2);
     const csvDelimiter = delimiter === 'tab' ? '\t' : delimiter;
-    if (format === 'csv') return [cols.join(csvDelimiter), ...data.rows.map(row => cols.map(col => csvCell(row[col], csvDelimiter, decimal)).join(csvDelimiter))].join('\n');
-    const parts: string[] = [];
-    if (includeStructure) {
+    if (format === 'sql' && includeStructure) {
       const res = await apiFetch(`/api/catalogs/${connectionId}/structure/sql`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ table: name }),
+        signal,
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || 'Failed to fetch table SQL');
-      parts.push(body.sql);
+      parts.push(body.sql, '\n');
     }
-    if (includeContents) {
-      for (const row of data.rows) {
-        parts.push(`INSERT INTO ${quoteTableName(dbType, item)} (${cols.map(col => q(dbType, col)).join(', ')}) VALUES (${cols.map(col => sqlValue(row[col])).join(', ')});`);
+    if (format === 'sql' && !includeContents) return;
+    let wroteHeader = false;
+    let rowCount = 0;
+    await forEachPage(item, signal, (pageCols, rows) => {
+      const cols = picked.length ? picked : pageCols;
+      if (format === 'csv' && !wroteHeader) { parts.push(cols.join(csvDelimiter)); wroteHeader = true; }
+      for (const row of rows) {
+        if (format === 'json') parts.push(rowCount ? ',\n' : '\n', jsonRow(Object.fromEntries(cols.map(col => [col, row[col]])), singleExport ? '  ' : '    '));
+        else if (format === 'csv') parts.push('\n', cols.map(col => csvCell(row[col], csvDelimiter, decimal)).join(csvDelimiter));
+        else parts.push(`INSERT INTO ${quoteTableName(dbType, item)} (${cols.map(col => q(dbType, col)).join(', ')}) VALUES (${cols.map(col => sqlValue(row[col])).join(', ')});`, '\n');
+        rowCount += 1;
       }
-    }
-    return parts.join('\n');
+    });
+    if (format === 'csv' && !wroteHeader) parts.push(picked.join(csvDelimiter));
+    if (format === 'json') return rowCount;
   };
 
   const openExport = (rows?: RowData[]) => {
@@ -167,32 +187,46 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
   };
 
   const handleExport = async () => {
+    const controller = new AbortController();
+    exportAbortRef.current = controller;
     try {
       setBusy(true);
-      if (format === 'json' && !singleExport) {
-        const entries = await Promise.all(targetTables.map(async item => {
-          const data = await fetchRows(item.table_name);
-          return [item.table_name, data.rows] as const;
-        }));
-        const filename = 'selected_tables.json';
-        saveBlob(new Blob([JSON.stringify(Object.fromEntries(entries), null, 2)], { type: 'application/json;charset=utf-8' }), filename);
-        toast.success(`Export saved to your browser Downloads folder: ${filename}`);
-        setDialog(null);
-        return;
+      setExportProgress('Starting export…');
+      // Tables run one after another; the file is assembled from text parts, never from all rows held at once.
+      const parts: string[] = [];
+      const multiJson = format === 'json' && !singleExport;
+      if (multiJson) parts.push('{');
+      for (const [index, item] of targetTables.entries()) {
+        if (format === 'json') {
+          if (multiJson) parts.push(index ? ',\n  ' : '\n  ', JSON.stringify(item.table_name), ': ');
+          parts.push('[');
+          const rows = await exportTable(item, controller.signal, parts);
+          parts.push(rows ? `\n${multiJson ? '  ' : ''}]` : ']');
+        } else {
+          if (index) parts.push('\n\n');
+          await exportTable(item, controller.signal, parts);
+        }
       }
-      const chunks = await Promise.all(targetTables.map(exportTable));
+      if (multiJson) parts.push(targetTables.length ? '\n}' : '}');
       const ext = format === 'sql' ? 'sql' : format;
-      let blob = new Blob([chunks.join('\n\n')], { type: 'text/plain;charset=utf-8' });
+      let blob = new Blob(parts, { type: format === 'json' ? 'application/json;charset=utf-8' : 'text/plain;charset=utf-8' });
       if (format === 'sql' && gzip) blob = await gzipBlob(blob);
-      const filename = `${downloadName(singleExport ? tableName : 'selected_tables')}.${ext}${format === 'sql' && gzip ? '.gz' : ''}`;
+      const filename = multiJson ? 'selected_tables.json' : `${downloadName(singleExport ? tableName : 'selected_tables')}.${ext}${format === 'sql' && gzip ? '.gz' : ''}`;
       saveBlob(blob, filename);
       toast.success(`Export saved to your browser Downloads folder: ${filename}`);
       setDialog(null);
     } catch (err: any) {
-      toast.error(err.message || 'Export failed');
+      if (err?.name === 'AbortError') toast.info('Export cancelled; no file was saved.');
+      else toast.error(`${err.message || 'Export failed'}; no file was saved.`);
     } finally {
+      if (exportAbortRef.current === controller) exportAbortRef.current = null;
+      setExportProgress(null);
       setBusy(false);
     }
+  };
+  const cancelExport = () => {
+    if (exportAbortRef.current) exportAbortRef.current.abort();
+    else setDialog(null);
   };
 
   const actionOptions = (action: 'delete' | 'truncate') => (
@@ -286,7 +320,7 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
     <>
       {trigger}
 
-      <Dialog open={dialog === 'export'} onOpenChange={open => !open && setDialog(null)}>
+      <Dialog open={dialog === 'export'} onOpenChange={open => { if (!open) { exportAbortRef.current?.abort(); setDialog(null); } }}>
         <DialogContent size="lg">
           <DialogHeader><DialogTitle>{singleExport ? `Export ${tableName}` : `Export ${targetTables.length} tables`}</DialogTitle></DialogHeader>
           <DialogBody className="space-y-4">
@@ -336,7 +370,11 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
               </div>
             )}
           </DialogBody>
-          <DialogFooter><Button variant="outline" onClick={() => setDialog(null)}>Cancel</Button><Button onClick={handleExport} disabled={busy || (singleExport && selectedColumns.length === 0)}>Export</Button></DialogFooter>
+          <DialogFooter>
+            {exportProgress && <span role="status" aria-live="polite" className="mr-auto self-center text-xs text-muted-foreground">{exportProgress}</span>}
+            <Button variant="outline" onClick={cancelExport}>{busy ? 'Stop export' : 'Cancel'}</Button>
+            <Button onClick={handleExport} disabled={busy || (singleExport && selectedColumns.length === 0)}>{busy ? 'Exporting…' : 'Export'}</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

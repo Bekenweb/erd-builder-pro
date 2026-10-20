@@ -3,7 +3,7 @@ import initSqlJs from "sql.js";
 import { sqliteConnector } from "../../lib/db-connectors/sqlite.js";
 import { postgresqlConnector } from "../../lib/db-connectors/postgresql.js";
 import { buildRecordDelete, buildRecordInsert, buildRecordUpdate, buildRecordWhere, validateRecordValues } from "./catalogs.controller.js";
-import { executeInTransaction, fetchTableInfo, tableSqlFor } from "./record-helpers.js";
+import { buildRecordOrder, executeInTransaction, fetchTableInfo, tableSqlFor } from "./record-helpers.js";
 import { buildExplainQuery, buildLimitedSelectQuery, normalizeSelectQuery } from "./query-helpers.js";
 import { buildConstraintStatements, buildCreateTableSql, buildIndexStatements, buildStructureStatements, removedEnumValues } from "./structure-helpers.js";
 import { extractMySqlCreatedTables, MAX_SQL_IMPORT_BYTES, normalizeMySqlCreateTableDefaults, splitSqlStatements, validateImportSql } from "./structure.controller.js";
@@ -644,5 +644,30 @@ describe("PostgreSQL schema/table identity", () => {
       columnName: "user_id", column: column("user_id"),
       foreignKey: { enabled: true, ref_table: "tenant.users", ref_column: "id", constraint_name: "orders_user_fk2" },
     } as any, schema).at(-1)).toContain('REFERENCES "tenant"."users" ("id")');
+  });
+});
+
+describe("stable record pages and parent search", () => {
+  const allowed = new Set(["id", "tenant_id", "name", "score"]);
+
+  it("orders by primary key by default and uses it as tie-breaker for non-unique sorts", () => {
+    expect(buildRecordOrder("postgresql", undefined, allowed, ["id"])).toBe(' ORDER BY "id" ASC');
+    expect(buildRecordOrder("mysql", { column: "score", direction: "desc" }, allowed, ["tenant_id", "id"])).toBe(" ORDER BY `score` DESC, `tenant_id` ASC, `id` ASC");
+    expect(buildRecordOrder("postgresql", { column: "id", direction: "desc" }, allowed, ["id"])).toBe(' ORDER BY "id" DESC');
+    expect(buildRecordOrder("postgresql", undefined, allowed, [])).toBe("");
+    expect(() => buildRecordOrder("postgresql", { column: "nope", direction: "asc" }, allowed, ["id"])).toThrow("Invalid sort column");
+  });
+
+  it("searches any column as text with escaped wildcards", () => {
+    expect(buildRecordWhere("postgresql", [], allowed, { value: "50%_off", columns: ["id", "name"] })).toEqual({
+      sql: ' WHERE (CAST("id" AS TEXT) ILIKE $1 OR CAST("name" AS TEXT) ILIKE $2)',
+      params: ["%50\\%\\_off%", "%50\\%\\_off%"],
+    });
+    expect(buildRecordWhere("mysql", [{ enabled: true, column: "score", operator: ">", value: "1" }], allowed, { value: "201", columns: ["id"] })).toEqual({
+      sql: " WHERE `score` > ? AND (CAST(`id` AS CHAR) LIKE ?)",
+      params: ["1", "%201%"],
+    });
+    expect(buildRecordWhere("postgresql", [], allowed, { value: "  " })).toEqual({ sql: "", params: [] });
+    expect(() => buildRecordWhere("postgresql", [], allowed, { value: "x", columns: ["password"] })).toThrow("Invalid search column");
   });
 });

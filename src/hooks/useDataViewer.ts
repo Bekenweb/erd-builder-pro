@@ -18,6 +18,12 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
   const [error, setError] = useState<string | null>(null);
   const newTableTab = '__new_table__';
   const abortRef = useRef<AbortController | null>(null);
+  // Async completions compare against these instead of render closures, so a late response cannot act on a
+  // table or connection the user has already left.
+  const activeTableRef = useRef<string | null>(null);
+  const connectionIdRef = useRef(connectionId);
+  activeTableRef.current = activeTable;
+  connectionIdRef.current = connectionId;
   const recordCache = connectionId ? getRecordCache(connectionId) : null;
   const appliedFiltersRef = useRef<RecordFilter[]>([]);
   const sortRef = useRef<RecordSort | null>(null);
@@ -31,8 +37,11 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
   const recordCacheKey = (table: string, p: number, nextFilters: RecordFilter[], nextSort: RecordSort | null) =>
     JSON.stringify([connectionId, table, p, nextFilters, nextSort]);
 
+  // Row count and table size per table+filter; page and sort changes reuse them instead of re-running COUNT.
+  const totalsRef = useRef(new Map<string, { total: number; tableInfo: any }>());
   const clearRecordCache = useCallback(() => {
     recordCache?.clear();
+    totalsRef.current.clear();
   }, [recordCache]);
 
   const fetchTables = useCallback(async (force = false) => {
@@ -51,15 +60,16 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
     try {
       const res = await apiFetch(`/api/catalogs/${connectionId}/schema`, { method: 'POST' });
       const data = await res.json();
+      if (connectionIdRef.current !== connectionId) return;
       if (!res.ok) throw new Error(data.error || 'Failed to fetch tables');
       setSchemaCache(connectionId, data);
       setTables(data.schema || []);
       setDbType(data.dbType || null);
       setConnectionSecurity(data.connectionSecurity || { environment: 'development', safeMode: 'protected', sslMode: 'disable', queryTimeoutMs: 30000 });
     } catch (err: any) {
-      setError(err.message);
+      if (connectionIdRef.current === connectionId) setError(err.message);
     } finally {
-      setIsLoadingTables(false);
+      if (connectionIdRef.current === connectionId) setIsLoadingTables(false);
     }
   }, [connectionId]);
 
@@ -86,6 +96,8 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
     }
     const controller = new AbortController();
     abortRef.current = controller;
+    const totalsKey = JSON.stringify([connectionId, table, nextFilters]);
+    const knownTotals = totalsRef.current.get(totalsKey);
 
     setIsLoadingRecords(true);
     setError(null);
@@ -93,12 +105,14 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
       const res = await apiFetch(`/api/catalogs/${connectionId}/records`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table, page: p, pageSize: 50, filters: nextFilters, sort: nextSort }),
+        body: JSON.stringify({ table, page: p, pageSize: 50, filters: nextFilters, sort: nextSort, withTotal: !knownTotals }),
         signal: controller.signal,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to fetch records');
       if (abortRef.current !== controller) return;
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch records');
+      if (knownTotals) Object.assign(data, knownTotals);
+      else totalsRef.current.set(totalsKey, { total: data.total, tableInfo: data.tableInfo });
       pageByTableRef.current[table] = p;
       recordCache?.set(cacheKey, data);
       if (recordCache && recordCache.size > 20) {
@@ -107,7 +121,7 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
       setRecords(data);
       setPage(p);
     } catch (err: any) {
-      if (err.name === 'AbortError') return;
+      if (err.name === 'AbortError' || abortRef.current !== controller) return;
       setError(err.message);
     } finally {
       if (abortRef.current === controller) setIsLoadingRecords(false);
@@ -331,7 +345,7 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to update record');
     clearRecordCache();
-    if (activeTable === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
+    if (activeTableRef.current === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
     return data;
   }, [activeTable, clearRecordCache, connectionId, fetchRecords, page]);
 
@@ -348,7 +362,7 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
       if (!res.ok) throw new Error(data.error || 'Failed to update records');
     } finally {
       clearRecordCache();
-      if (activeTable === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
+      if (activeTableRef.current === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
     }
   }, [activeTable, clearRecordCache, connectionId, fetchRecords, page]);
 
@@ -362,7 +376,7 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to create record');
     clearRecordCache();
-    if (activeTable === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
+    if (activeTableRef.current === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
     return data;
   }, [activeTable, clearRecordCache, connectionId, fetchRecords, page]);
 
@@ -379,7 +393,7 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
       return data;
     } finally {
       clearRecordCache();
-      if (activeTable === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
+      if (activeTableRef.current === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
     }
   }, [activeTable, clearRecordCache, connectionId, fetchRecords, page]);
 
@@ -395,9 +409,10 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
     clearRecordCache();
     clearSchemaCache(connectionId);
     await fetchTables();
-    if (activeTable && patch.truncateTables?.includes(activeTable)) fetchRecords(activeTable, 1);
+    const current = activeTableRef.current;
+    if (current && patch.truncateTables?.includes(current)) fetchRecords(current, 1);
     return data;
-  }, [activeTable, clearRecordCache, connectionId, fetchRecords, fetchTables]);
+  }, [clearRecordCache, connectionId, fetchRecords, fetchTables]);
 
   const deleteTables = useCallback(async (tableNames: string[], options: { ignoreForeignKeys?: boolean; cascade?: boolean; confirmation?: string }) => {
     if (!connectionId || tableNames.length === 0) return;
@@ -406,7 +421,8 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
     const deleted = new Set(tableNames);
     setOpenTabs(prev => prev.filter(tab => !deleted.has(tab.name)));
     tableNames.forEach(name => { delete pageByTableRef.current[name]; delete tableStateRef.current[name]; });
-    if (activeTable && deleted.has(activeTable)) {
+    const current = activeTableRef.current;
+    if (current && deleted.has(current)) {
       const fallback = openTabs.find(tab => !deleted.has(tab.name))?.name ?? null;
       setActiveTable(fallback);
       setRecords(null); setFilters([]); setAppliedFilters([]);
@@ -414,7 +430,7 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
       if (fallback) fetchRecords(fallback, pageByTableRef.current[fallback] ?? 1);
     }
     return data;
-  }, [activeTable, clearRecordCache, connectionId, fetchRecords, mutateTables, openTabs]);
+  }, [clearRecordCache, connectionId, fetchRecords, mutateTables, openTabs]);
 
   const updateStructure = useCallback(async (patch: Record<string, any>) => {
     const targetTable = activeTable || (patch.createTable ? '__new__' : null);
@@ -428,24 +444,35 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
     if (!res.ok) throw new Error(data.error || 'Failed to update structure');
     clearRecordCache();
     clearSchemaCache(connectionId);
-    const nextTable = patch.createTable?.name || patch.tableName || activeTable;
-    setActiveTable(nextTable);
+    // A rename inside a non-public PostgreSQL schema keeps the schema-qualified key (see SH-005.1).
+    const current = tables.find((table: any) => table.table_name === activeTable);
+    const schemaPrefix = current?.base_name && current.base_name !== current.table_name ? `${current.table_schema}.` : '';
+    const renamed = patch.tableName && schemaPrefix && !String(patch.tableName).startsWith(schemaPrefix) ? `${schemaPrefix}${patch.tableName}` : patch.tableName;
+    const nextTable = patch.createTable?.name || renamed || activeTable;
+    // Follow the edited table only if the user is still on it; never pull them back from another table.
+    const stillOnTable = activeTableRef.current === activeTable;
+    if (stillOnTable) {
+      setActiveTable(nextTable);
+      activeTableRef.current = nextTable;
+    }
     setOpenTabs(prev => prev.some(tab => tab.name === nextTable)
       ? prev.map(tab => tab.name === activeTable ? { ...tab, name: nextTable, pinned: true } : tab)
-      : [...prev, { name: nextTable, pinned: true }]);
+      : stillOnTable ? [...prev, { name: nextTable, pinned: true }] : prev.map(tab => tab.name === activeTable ? { ...tab, name: nextTable } : tab));
     pageByTableRef.current[nextTable] = activeTable ? pageByTableRef.current[activeTable] ?? page : 1;
     if (activeTable && nextTable !== activeTable) delete pageByTableRef.current[activeTable];
     await fetchTables();
-    fetchRecords(nextTable, pageByTableRef.current[nextTable] ?? page);
+    if (activeTableRef.current === nextTable) fetchRecords(nextTable, pageByTableRef.current[nextTable] ?? page);
     return data;
-  }, [activeTable, clearRecordCache, connectionId, fetchRecords, fetchTables, page]);
+  }, [activeTable, clearRecordCache, connectionId, fetchRecords, fetchTables, page, tables]);
 
   const refreshAll = useCallback(async () => {
     clearRecordCache();
     if (connectionId) clearSchemaCache(connectionId);
     await fetchTables();
-    if (activeTable && activeTable !== newTableTab) fetchRecords(activeTable, pageByTableRef.current[activeTable] ?? page);
-  }, [activeTable, clearRecordCache, connectionId, fetchRecords, fetchTables, page]);
+    // Read the table after the await: the user may have switched while the schema refreshed.
+    const table = activeTableRef.current;
+    if (connectionIdRef.current === connectionId && table && table !== newTableTab) fetchRecords(table, pageByTableRef.current[table] ?? page);
+  }, [clearRecordCache, connectionId, fetchRecords, fetchTables, page]);
 
   const clearFilters = useCallback(() => {
     filtersRef.current = [];
