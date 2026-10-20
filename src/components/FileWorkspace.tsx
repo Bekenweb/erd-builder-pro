@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
 import { Radio } from '@base-ui/react/radio';
@@ -15,8 +15,10 @@ import { ProjectFileTabs } from './ProjectFileTabs';
 import { Button } from './ui/button';
 import { AlertDialog, AlertDialogContent, AlertDialogBody, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter } from './ui/alert-dialog';
 
-export function FileWorkspace({ children, root, mainAI, teamState, discussionTarget, onFocusedSession, onPairChange }: {
+export function FileWorkspace({ children, root, mainAI, teamState, discussionTarget, onFocusedSession, onPairChange, paneAIRef }: {
   children: ReactNode; root: WorkspaceContextValue; mainAI: AIActionContextValue; teamState: unknown; discussionTarget: HTMLElement | null; onFocusedSession: (session: FileSession | null) => void; onPairChange: (paired: boolean) => void;
+  /** Filled with a lookup of the AI scope of each open pane, for applying a reply to a file that is not focused. */
+  paneAIRef?: MutableRefObject<((key: string) => AIActionContextValue | undefined) | null>;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -53,6 +55,11 @@ export function FileWorkspace({ children, root, mainAI, teamState, discussionTar
   } : null;
   const current = loaded ?? panes[0] ?? null;
   const scope = `${root.user?.id}:${root.teamScopeVersion}`;
+  useLayoutEffect(() => {
+    if (!paneAIRef) return;
+    paneAIRef.current = key => panes.some(file => paneKey(file) === key) ? sessions.current.get(key)?.ai : undefined;
+    return () => { paneAIRef.current = null; };
+  }, [paneAIRef, panes]);
   const publish = useCallback((key: string, session: FileSession) => {
     sessions.current.set(key, session);
     if (key === focusedRef.current) onFocusedSession(session);

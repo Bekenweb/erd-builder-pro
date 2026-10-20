@@ -14,6 +14,7 @@ import {
   SelectItem, SelectGroup, SelectLabel,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { useProjectFiles } from './useProjectFiles';
 import { stripAiFluff } from './chatUtils';
 
 export interface NoteFromTextDialogProps {
@@ -30,13 +31,14 @@ export interface NoteFromTextDialogProps {
 export function NoteFromTextDialog({
   text,
   onClose,
-  notes,
+  notes: workspaceNotes,
   targetProjectId,
   noteDefaultName = 'New Note',
   handleSidebarNoteCreate,
   handleNoteSelect,
   activeNoteContent,
 }: NoteFromTextDialogProps) {
+  const notes = useProjectFiles('notes', targetProjectId, workspaceNotes);
   const isOnNotesPage = window.location.pathname.startsWith('/notes/');
 
   const [mode, setMode] = useState<'create' | 'replace' | 'append' | 'update' | null>(null);
@@ -173,7 +175,7 @@ export function NoteFromTextDialog({
         </DialogHeader>
 
         <DialogBody className="flex-1 overflow-auto p-0! border-y">
-          <div className="p-6 pb-0 space-y-4">
+          <div className="p-6 space-y-4">
             <div className={`grid gap-3 ${isOnNotesPage ? 'grid-cols-3' : 'grid-cols-2'}`}>
               <button
                 onClick={() => { setMode('create'); setUpdateUid(null); }}
@@ -241,7 +243,7 @@ export function NoteFromTextDialog({
             </div>
 
             {!isOnNotesPage && mode === 'update' && (
-              <div className="pb-4">
+              <div>
                 <label className="text-[11px] font-medium text-muted-foreground">Target Note</label>
                 <Select value={updateUid || ''} onValueChange={setUpdateUid}>
                   <SelectTrigger className="w-full text-xs mt-1.5">

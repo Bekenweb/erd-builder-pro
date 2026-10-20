@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Sparkles, Plus, Loader2, Search, ChevronLeft, ChevronRight, ArrowLeft } from 'lucide-react';
 import { useAIChat, EntityContext } from '@/hooks/useAIChat';
 import { AIAction, getActionsForView, grillMeAction, ViewType } from '@/components/ai/AIActions';
-import { useAIAction } from '@/contexts/AIActionContext';
+import { useAIAction, type AIActionContextValue } from '@/contexts/AIActionContext';
 import { Button } from '@/components/ui/button';
 import ConfirmModal from '@/components/ConfirmModal';
 import { Tooltip } from '@base-ui/react/tooltip';
@@ -13,7 +13,9 @@ import { ChatMessages } from './ChatMessages';
 import { PlanInterviewCard } from './PlanInterviewCard';
 import { apiFetch } from '@/lib/api';
 import { extractPlanQuestion } from './plan-question-utils';
-import type { AIChatSession } from '@/types';
+import { replyPaneTarget } from './chatUtils';
+import type { AIChatMessage, AIChatSession } from '@/types';
+import type { ApplyTarget } from './AssistantMessageActions';
 
 interface MentionFile {
   name: string;
@@ -38,6 +40,8 @@ interface AIChatPanelProps {
   flowcharts?: any[];
   drawings?: any[];
   activeNoteContent?: string;
+  /** AI scope of a file open in a side-by-side pane, keyed `${viewType}:${uid}`; undefined once that pane closes. */
+  getPaneAI?: (key: string) => AIActionContextValue | undefined;
 }
 
 export const AIChatPanel = ({
@@ -56,6 +60,7 @@ export const AIChatPanel = ({
   flowcharts = [],
   drawings = [],
   activeNoteContent,
+  getPaneAI,
 }: AIChatPanelProps) => {
   const entityContext: EntityContext | null =
     entityType && entityUid ? { entityType, entityUid } : null;
@@ -70,8 +75,14 @@ export const AIChatPanel = ({
   const pendingActionRef = useRef(pendingAction);
   pendingActionRef.current = pendingAction;
 
-  const onStreamComplete = useCallback((response: string) => {
+  // Which file and action produced each reply, so its Apply buttons survive a focus change to the other pane.
+  const replyOriginsRef = useRef(new Map<string, { key: string; viewType: ViewType; actionId: string | null }>());
+  const sendOriginRef = useRef<{ key: string; viewType: ViewType; actionId: string | null } | null>(null);
+
+  const onStreamComplete = useCallback((response: string, assistantClientMessageId?: string) => {
     setLastStreamResponse(response);
+    if (assistantClientMessageId && sendOriginRef.current) replyOriginsRef.current.set(assistantClientMessageId, sendOriginRef.current);
+    sendOriginRef.current = null;
     if (pendingActionRef.current) {
       pendingActionRef.current.onResult(response);
       onClearPendingAction?.();
@@ -192,7 +203,18 @@ export const AIChatPanel = ({
     inputRef.current?.focus();
   }, []);
 
-  const contentCheckType = currentViewType === 'flowchart' ? 'flowchart' as const : currentViewType === 'erd' ? 'erd' as const : 'none' as const;
+  const checkTypeFor = (view: ViewType | null) => view === 'flowchart' ? 'flowchart' as const : view === 'erd' ? 'erd' as const : 'none' as const;
+  const contentCheckType = checkTypeFor(currentViewType);
+  const focusedPaneKey = currentViewType && entityUid ? `${currentViewType}:${entityUid}` : null;
+  const applyTargetFor = useCallback((message: AIChatMessage): ApplyTarget | null => {
+    const origin = message.client_message_id ? replyOriginsRef.current.get(message.client_message_id) : undefined;
+    const target = replyPaneTarget(origin?.key, focusedPaneKey, getPaneAI);
+    if (!origin || !target) return null;
+    return {
+      applyContent: target.applyContent, hasContentHandler: target.hasContentHandler,
+      contentHandlerStrategies: target.contentHandlerStrategies, contentCheckType: checkTypeFor(origin.viewType), lastActionId: origin.actionId,
+    };
+  }, [focusedPaneKey, getPaneAI]);
   // ─── Build mention file list from workspace file arrays ──
   const mentionFiles = useMemo<MentionFile[]>(() => {
     // Derive projectId from active entity (activeProjectId prop is always null)
@@ -342,12 +364,13 @@ export const AIChatPanel = ({
       planMode: activeAction?.id === grillMeAction.id || undefined,
     });
     if (inputRef.current) inputRef.current.value = '';
+    sendOriginRef.current = focusedPaneKey && currentViewType ? { key: focusedPaneKey, viewType: currentViewType, actionId: activeActionId } : null;
     setLastActionId(activeActionId);
     if (!activeAction?.persistent) {
       setActiveActionId(null);
       setActiveActionPrompt(null);
     }
-  }, [canWriteCurrentSession, isStreaming, sendMessage, selectionText, activeActionPrompt, activeActionId, activeAction, planPhase, resolveMentions]);
+  }, [canWriteCurrentSession, isStreaming, sendMessage, selectionText, activeActionPrompt, activeActionId, activeAction, planPhase, resolveMentions, focusedPaneKey, currentViewType]);
 
   const handlePlanAnswer = useCallback(async (answer: string) => {
     if (isStreaming) return;
@@ -514,6 +537,7 @@ export const AIChatPanel = ({
               lastActionId={lastActionId}
               applyContent={applyContent}
               contentCheckType={contentCheckType}
+              applyTargetFor={applyTargetFor}
               mentionFiles={mentionFiles}
               activeProjectId={projectId}
               diagrams={diagrams}

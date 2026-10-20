@@ -21,6 +21,7 @@ import {
   normalizeAIChatMessage,
 } from './aiChat/index';
 import type { AIRequestContext } from './aiChat/index';
+import { fetchWithRetry, isGatewayError } from './aiChat/fetchWithRetry';
 import {
   assistantClientMessageId,
   listPlanOutbox,
@@ -101,7 +102,7 @@ async function mergePlanOutbox(sessionUid: string, messages: AIChatMessage[]) {
 export function useAIChat(
   entityContext?: EntityContext | null,
   entityContextText?: string | null,
-  onStreamComplete?: (response: string) => void,
+  onStreamComplete?: (response: string, assistantClientMessageId: string) => void,
   projectId?: number | string | null,
   viewType?: string | null,
 ): UseAIChatReturn {
@@ -133,7 +134,7 @@ export function useAIChat(
   const isGuestRef = useRef(auth.isGuest);
   useEffect(() => { isGuestRef.current = auth.isGuest; }, [auth.isGuest]);
 
-  const onStreamCompleteRef = useRef<((response: string) => void) | undefined>(undefined);
+  const onStreamCompleteRef = useRef<((response: string, assistantClientMessageId: string) => void) | undefined>(undefined);
   useEffect(() => { onStreamCompleteRef.current = onStreamComplete; }, [onStreamComplete]);
 
   const projectIdRef = useRef(projectId);
@@ -470,14 +471,14 @@ export function useAIChat(
     // Online mode: save user message to DB + auto-title
     if (!isGuest && !resumeExisting) {
       try {
-        const res = await apiFetch('/api/ai/chat/messages', {
+        const res = await fetchWithRetry(() => apiFetch('/api/ai/chat/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             session_id: currentSession.uid ?? currentSession.id, role: 'user', content: trimmed, selection_text: selectionText || null,
             client_message_id: clientMessageId,
           }),
-        });
+        }), isGatewayError);
         if (!res.ok) throw new Error('Failed to save message');
         const savedMessage = normalizeAIChatMessage(await res.json());
         const replaceSaved = (message: AIChatMessage) => message.client_message_id === clientMessageId
@@ -702,14 +703,15 @@ export function useAIChat(
           return updated;
         });
       } else {
-        const saveAIRes = await apiFetch('/api/ai/chat/messages', {
+        // 404 means the proxy has not finished persisting the trusted reply yet (Plan streams stop early).
+        const saveAIRes = await fetchWithRetry(() => apiFetch('/api/ai/chat/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             session_id: currentSession.uid ?? currentSession.id, role: 'assistant', content: accumulatedResponse,
             client_message_id: assistantMessageId,
           }),
-        });
+        }), status => status === 404 || isGatewayError(status));
         if (!saveAIRes.ok) throw new Error('Failed to save AI response');
         const savedAssistant = normalizeAIChatMessage(await saveAIRes.json());
         const replaceAssistant = (message: AIChatMessage) => message.client_message_id === assistantMessageId
@@ -737,7 +739,7 @@ export function useAIChat(
         updateDeliveryStatus(undefined);
       }
 
-      if (onStreamCompleteRef.current) onStreamCompleteRef.current(accumulatedResponse);
+      if (onStreamCompleteRef.current) onStreamCompleteRef.current(accumulatedResponse, assistantMessageId);
 
     } catch (err: any) {
       const errMsg = err.message || 'AI request failed';

@@ -8,7 +8,7 @@ import { formatTime } from './chatUtils';
 import { ErdFromSqlDialog } from './ErdFromSqlDialog';
 import { FlowchartFromJsonDialog } from './FlowchartFromJsonDialog';
 import { NoteFromTextDialog } from './NoteFromTextDialog';
-import { AssistantMessageActions } from './AssistantMessageActions';
+import { AssistantMessageActions, type ApplyTarget } from './AssistantMessageActions';
 import { UserMessageBody } from './UserMessageBody';
 import { extractPlanQuestion, hasSubstantivePlanContent, hidePlanQuestionProtocol, isPlanResponse } from './plan-question-utils';
 
@@ -36,6 +36,8 @@ export interface ChatMessagesProps {
   lastActionId: string | null;
   applyContent: (content: string, strategy: 'replace' | 'append', actionId?: string) => void;
   contentCheckType?: 'flowchart' | 'erd' | 'none';
+  /** Routes a reply's Apply buttons to the editor it was written for when that file is open in another pane. */
+  applyTargetFor?: (message: AIChatMessage) => ApplyTarget | null;
   mentionFiles?: MentionFile[];
   activeProjectId?: string | number | null;
   diagrams?: any[];
@@ -65,6 +67,7 @@ export const ChatMessages = memo(function ChatMessages({
   lastActionId,
   applyContent,
   contentCheckType = 'none',
+  applyTargetFor,
   mentionFiles = [],
   activeProjectId,
   diagrams = [],
@@ -292,6 +295,7 @@ export const ChatMessages = memo(function ChatMessages({
                         contentCheckType={contentCheckType}
                         lastActionId={lastActionId}
                         applyContent={applyContent}
+                        {...applyTargetFor?.(msg)}
                         copiedMsgId={copiedMsgId}
                         onCopy={handleCopy}
                         onOpenErdDialog={setErdDialogSchema}

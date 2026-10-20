@@ -14,6 +14,8 @@ import {
   SelectItem, SelectGroup, SelectLabel,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { useProjectFiles } from './useProjectFiles';
+import { PENDING_FLOWCHART_EVENT, PENDING_FLOWCHART_TARGET } from '@/lib/pending-flowchart';
 import { FlowchartNodeData } from '@/components/FlowchartNode';
 
 export interface FlowchartFromJsonDialogProps {
@@ -31,7 +33,7 @@ export interface FlowchartFromJsonDialogProps {
 export function FlowchartFromJsonDialog({
   json,
   onClose,
-  flowcharts,
+  flowcharts: workspaceFlowcharts,
   targetProjectId,
   flowchartDefaultName = 'New Flowchart',
   handleSidebarFlowchartCreate,
@@ -39,6 +41,7 @@ export function FlowchartFromJsonDialog({
   createSilently = false,
   onCreated,
 }: FlowchartFromJsonDialogProps) {
+  const flowcharts = useProjectFiles('flowcharts', targetProjectId, workspaceFlowcharts);
   const [mode, setMode] = useState<'create' | 'update' | null>(null);
   const [updateUid, setUpdateUid] = useState<string | null>(null);
   const [existingData, setExistingData] = useState<{ nodes: Node<FlowchartNodeData>[]; edges: Edge[] } | null>(null);
@@ -179,6 +182,12 @@ export function FlowchartFromJsonDialog({
     if (!createSilently) localStorage.setItem('pending_create_flowchart_json', json);
     toast.info('Creating new Flowchart...');
     const flowchart = await handleSidebarFlowchartCreate(`Flowchart - ${flowchartDefaultName}`, targetProjectId, { silent: createSilently });
+    if (!flowchart) localStorage.removeItem('pending_create_flowchart_json');
+    else if (localStorage.getItem('pending_create_flowchart_json')) {
+      // Not consumed yet (e.g. a replace-pane prompt is open): bind it to the new file only.
+      localStorage.setItem(PENDING_FLOWCHART_TARGET, String(flowchart.uid ?? flowchart.id));
+      window.dispatchEvent(new Event(PENDING_FLOWCHART_EVENT));
+    }
     if (flowchart) {
       onClose();
       await onCreated?.(flowchart, json);
@@ -190,14 +199,11 @@ export function FlowchartFromJsonDialog({
   // ── Update existing flowchart ──
   const handleUpdate = useCallback(async (uid: string) => {
     localStorage.setItem('pending_update_flowchart_json', json);
-    localStorage.setItem('chat_flowchart_uid', uid);
+    localStorage.setItem(PENDING_FLOWCHART_TARGET, uid);
     toast.info('Review changes in the Flowchart...');
-    if (window.location.pathname === `/flowcharts/${uid}`) {
-      onClose();
-      return;
-    }
-    await handleFlowchartSelect(uid);
+    if (window.location.pathname !== `/flowcharts/${uid}`) await handleFlowchartSelect(uid);
     onClose();
+    window.dispatchEvent(new Event(PENDING_FLOWCHART_EVENT));
   }, [json, handleFlowchartSelect, onClose]);
 
   // ── Filter flowcharts by project ──

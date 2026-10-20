@@ -42,3 +42,10 @@ export function assertNoCommentDraft(container: ParentNode = document) {
     throw new Error('Send or clear your comment draft before closing this file.');
   }
 }
+
+// An AI schema diff lives only in the editor's memory, so unmounting the pane would silently discard it.
+export function assertNoPendingReview(container: ParentNode = document) {
+  if (container.querySelectorAll('[data-pending-review]').length) {
+    throw new Error('Merge or reject the pending AI changes first; leaving this editor would discard them.');
+  }
+}

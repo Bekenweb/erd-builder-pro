@@ -1,9 +1,10 @@
 import type { WorkspaceContextValue } from '@/providers/WorkspaceContext';
-import { assertNoCommentDraft, NOTE_PANE_SNAPSHOT } from './file-panes';
+import { assertNoCommentDraft, assertNoPendingReview, NOTE_PANE_SNAPSHOT } from './file-panes';
 import { flushWorkspaceChanges } from './workspace-save';
 
 export async function flushPaneFile(workspace: WorkspaceContextValue, container: ParentNode = document) {
   assertNoCommentDraft(container);
+  assertNoPendingReview(container);
   const { view, activeNote, activeDiagram, activeFlowchart, activeDrawing } = workspace;
   const file = view === 'notes' ? activeNote : view === 'erd' ? activeDiagram : view === 'flowchart' ? activeFlowchart : activeDrawing;
   let capturedNote = false;
