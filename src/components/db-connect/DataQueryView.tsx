@@ -52,6 +52,7 @@ export const DataQueryView = memo(function DataQueryView({ connectionId, dbClien
     try { return JSON.parse(localStorage.getItem(`erd-db-query-history:${connectionId}`) || '[]'); } catch { return []; }
   });
   const runningIdRef = useRef<string | null>(null);
+  const cancelledRunRef = useRef<string | null>(null);
   const queryEditorRef = useRef<EditorView | null>(null);
   const [beautifying, setBeautifying] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -241,9 +242,11 @@ export const DataQueryView = memo(function DataQueryView({ connectionId, dbClien
     const tab = activeTabRef.current;
     if (!tab) return;
     const script = scriptOverride ?? tab.script;
-    setRunningMode(mode);
+    // Synchronous lock: Cmd/Ctrl+Enter or a double click while a run is pending must not start a second run.
+    if (runningIdRef.current) return;
     const runId = crypto.randomUUID();
     runningIdRef.current = runId;
+    setRunningMode(mode);
     const started = Date.now();
     let status: QueryExecution['status'] = 'success';
     patchTab(tab.key, { error: null });
@@ -257,8 +260,8 @@ export const DataQueryView = memo(function DataQueryView({ connectionId, dbClien
       if (!res.ok) throw new Error(data.error || 'Failed to run SQL query');
       patchTab(tab.key, { result: data, resultPage: 1 });
     } catch (err: any) {
-      status = runningIdRef.current ? 'error' : 'cancelled';
-      patchTab(tab.key, { error: err.message });
+      status = cancelledRunRef.current === runId ? 'cancelled' : 'error';
+      patchTab(tab.key, { error: status === 'cancelled' ? 'Query cancelled' : err.message });
     } finally {
       const entry: QueryExecution = { id: runId, script, mode, status, durationMs: Date.now() - started, executedAt: new Date().toISOString() };
       setHistory(previous => {
@@ -266,18 +269,29 @@ export const DataQueryView = memo(function DataQueryView({ connectionId, dbClien
         try { localStorage.setItem(`erd-db-query-history:${connectionId}`, JSON.stringify(next)); } catch {}
         return next;
       });
-      runningIdRef.current = null;
-      setRunningMode(null);
+      if (runningIdRef.current === runId) {
+        runningIdRef.current = null;
+        setRunningMode(null);
+      }
+      if (cancelledRunRef.current === runId) cancelledRunRef.current = null;
     }
   }, [connectionId, patchTab]);
 
   const run = useCallback((script?: string) => execute('run', script), [execute]);
   const explain = useCallback((script?: string) => execute('explain', script), [execute]);
+  // The run stays locked until its own request settles; Stop only asks the server and reports whether it worked.
   const cancelRun = useCallback(async () => {
     const runId = runningIdRef.current;
-    if (!runId) return;
-    runningIdRef.current = null;
-    await apiFetch(`/api/catalogs/${connectionId}/query/cancel/${runId}`, { method: 'POST' });
+    if (!runId || cancelledRunRef.current === runId) return;
+    cancelledRunRef.current = runId;
+    try {
+      const res = await apiFetch(`/api/catalogs/${connectionId}/query/cancel/${runId}`, { method: 'POST' });
+      // 404 means the query already finished; its own response will settle the run.
+      if (!res.ok && res.status !== 404) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    } catch (error) {
+      if (cancelledRunRef.current === runId) cancelledRunRef.current = null;
+      toast.error(`Could not stop the query: ${error instanceof Error ? error.message : 'network error'}`);
+    }
   }, [connectionId]);
 
   const beautifyActiveTab = useCallback((scriptOverride?: string) => {

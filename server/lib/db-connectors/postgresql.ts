@@ -1,8 +1,17 @@
 import pg from "pg";
 import type { ConnectionInfo, ConnectorClient, TableSchema, DbConnector } from "./types.js";
 import { tlsOptions } from "./security.js";
+import { logger } from "../logger.js";
 
 const pools = new Map<string, pg.Pool>();
+
+// An idle pooled client can be closed by the server (restart, network drop, pg_terminate_backend, DROP DATABASE
+// WITH (FORCE)). pg emits that on the Pool; without a listener Node treats it as an unhandled 'error' and the
+// whole API process exits. The pool already discards the dead client, so logging is enough.
+const keepProcessAlive = (pool: pg.Pool) => {
+  pool.on("error", err => logger.warn({ err: err.message }, "Idle PostgreSQL client closed by the server"));
+  return pool;
+};
 
 const connectionConfig = (info: ConnectionInfo) => ({
   host: info.host || "localhost",
@@ -17,13 +26,13 @@ function getPool(info: ConnectionInfo) {
   const key = JSON.stringify(info);
   let pool = pools.get(key);
   if (!pool) {
-    pool = new pg.Pool({
+    pool = keepProcessAlive(new pg.Pool({
       ...connectionConfig(info),
       max: 4,
       idleTimeoutMillis: 30_000,
       statement_timeout: info.queryTimeoutMs || 30_000,
       query_timeout: info.queryTimeoutMs || 30_000,
-    });
+    }));
     pools.set(key, pool);
   }
   return pool;
@@ -53,11 +62,11 @@ export const postgresqlConnector: DbConnector = {
 
   async test(info: ConnectionInfo): Promise<string> {
     const start = Date.now();
-    const pool = new pg.Pool({
+    const pool = keepProcessAlive(new pg.Pool({
       ...connectionConfig(info),
       max: 2,
       idleTimeoutMillis: 5000,
-    });
+    }));
     const client = await pool.connect();
     client.release();
     await pool.end();

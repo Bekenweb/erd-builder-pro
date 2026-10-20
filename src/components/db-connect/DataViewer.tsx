@@ -23,8 +23,8 @@ import ConfirmModal from '@/components/ConfirmModal';
 import { useSetActionContextData } from '@/contexts/AIActionContext';
 import { buildDbClientTableContext } from '@/lib/db-client-ai-context';
 
-interface DataViewerProps { connectionId: number; stateKey?: string; onDbTypeChange?: (dbType: string | null) => void; } type DataViewerView = 'data' | 'structure';
-export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onDbTypeChange }: DataViewerProps) {
+interface DataViewerProps { connectionId: number; stateKey?: string; onDbTypeChange?: (dbType: string | null) => void; /** False while Query/ERD is shown: hidden Data must not react to shortcuts or toolbar events. */ active?: boolean; } type DataViewerView = 'data' | 'structure';
+export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onDbTypeChange, active = true }: DataViewerProps) {
   const setActionContextData = useSetActionContextData();
   const {
     tables, activeTable, openTabs, filters, appliedFilters, sort, records, dbType, connectionSecurity, page, totalPages,
@@ -35,6 +35,8 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
   const [showFilters, setShowFilters] = useState(false);
   const [activeView, setActiveView] = useState<DataViewerView>('data');
   const [fkOptionsByColumn, setFkOptionsByColumn] = useState<Record<string, Record<string, any>[]>>({});
+  const [fkSearchByColumn, setFkSearchByColumn] = useState<Record<string, string>>({});
+  const setFkSearch = useCallback((column: string, value: string) => setFkSearchByColumn(prev => ({ ...prev, [column]: value })), []);
   const [confirmAction, setConfirmAction] = useState<null | 'records' | 'column' | 'index' | 'check'>(null);
   const [sqlDialogOpen, setSqlDialogOpen] = useState(false);
   const [structureSql, setStructureSql] = useState('');
@@ -241,41 +243,49 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
     return () => setActionContextData(null);
   }, [activeTableSchema, activeView, dbType, setActionContextData, tables.length]);
   useEffect(() => { recordEditor.syncSelectedRowDraft(); }, [recordEditor.syncSelectedRowDraft]);
+  useEffect(() => { setFkSearchByColumn({}); }, [activeTable, recordEditor.selectedRow, recordEditor.isCreatingRecord]);
   useEffect(() => {
-    if (!activeTable || !recordEditor.detailsOpen || !recordEditor.selectedRow || foreignKeyByColumn.size === 0) {
+    if (!activeTable || !recordEditor.detailsOpen || (!recordEditor.selectedRow && !recordEditor.isCreatingRecord) || foreignKeyByColumn.size === 0) {
       setFkOptionsByColumn({});
       return;
     }
 
+    // Parents are searched on the server (debounced) instead of loading every parent row into the browser.
     let cancelled = false;
-    Promise.all([...foreignKeyByColumn.entries()].map(async ([column, fk]: any) => {
-      const res = await apiFetch(`/api/catalogs/${connectionId}/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          table: fk.ref_table,
-          page: 1,
-          pageSize: 200,
-          sort: { column: fk.ref_column, direction: 'asc' },
-        }),
+    const timer = setTimeout(() => {
+      Promise.all([...foreignKeyByColumn.entries()].map(async ([column, fk]: any) => {
+        const search = fkSearchByColumn[column]?.trim();
+        const res = await apiFetch(`/api/catalogs/${connectionId}/records`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            table: fk.ref_table,
+            page: 1,
+            pageSize: 50,
+            withTotal: false,
+            sort: { column: fk.ref_column, direction: 'asc' },
+            ...(search ? { search: { value: search } } : {}),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to load related records');
+        return [column, data.rows || []] as const;
+      })).then(entries => {
+        if (!cancelled) setFkOptionsByColumn(Object.fromEntries(entries));
+      }).catch(() => {
+        if (!cancelled) setFkOptionsByColumn({});
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load related records');
-      return [column, data.rows || []] as const;
-    })).then(entries => {
-      if (!cancelled) setFkOptionsByColumn(Object.fromEntries(entries));
-    }).catch(() => {
-      if (!cancelled) setFkOptionsByColumn({});
-    });
+    }, Object.keys(fkSearchByColumn).length ? 250 : 0);
 
-    return () => { cancelled = true; };
-  }, [activeTable, connectionId, foreignKeyByColumn, recordEditor.detailsOpen, recordEditor.selectedRow]);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [activeTable, connectionId, fkSearchByColumn, foreignKeyByColumn, recordEditor.detailsOpen, recordEditor.isCreatingRecord, recordEditor.selectedRow]);
   useEffect(() => { recordEditor.resetRecordEditor(); inlineDrafts.clear(); if (!isNewTableTab) structureEditor.close(); }, [activeTable, isNewTableTab]);
   useEffect(() => { recordEditor.resetRecordEditor(); inlineDrafts.clear(); lastRecordRowKeyRef.current = null; }, [page]);
   useEffect(() => {
     if (isNewTableTab && structureEditor.target?.kind !== 'addTable') handleCloseTable('__new_table__');
   }, [handleCloseTable, isNewTableTab, structureEditor.target?.kind]);
   useEffect(() => {
+    if (!active) return;
     const refresh = () => handleRefresh();
     const toggleDetails = () => recordEditor.setDetailsOpen(open => open ? (warnUnsaved() ? false : true) : true);
     const toggleRecordFilters = () => toggleFilters();
@@ -286,9 +296,10 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
     ];
     events.forEach(([name, handler]) => window.addEventListener(name, handler));
     return () => { events.forEach(([name, handler]) => window.removeEventListener(name, handler)); };
-  }, [handleRefresh, recordEditor.setDetailsOpen, toggleFilters, warnUnsaved]);
+  }, [active, handleRefresh, recordEditor.setDetailsOpen, toggleFilters, warnUnsaved]);
 
   useEffect(() => {
+    if (!active) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && recordDraftCount > 0) {
         e.preventDefault();
@@ -331,7 +342,7 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [activeTable, activeView, handleRefresh, handleSubmitStructure, inlineDrafts.save, readOnlyReason, recordDraftCount, toggleFilters, recordEditor.selectRows, recordEditor.submitRecord, records, warnUnsaved]);
+  }, [active, activeTable, activeView, handleRefresh, handleSubmitStructure, inlineDrafts.save, readOnlyReason, recordDraftCount, toggleFilters, recordEditor.selectRows, recordEditor.submitRecord, records, warnUnsaved]);
 
   return (
     <div
@@ -360,11 +371,11 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
       />
 
       <div className="flex-1 grid grid-rows-[auto_1fr_auto] overflow-hidden">
-        <div className="flex h-7 items-center gap-2 border-b bg-muted/20 px-3 text-[10px] font-semibold uppercase">
+        <div className="flex h-7 items-center gap-2 overflow-hidden whitespace-nowrap border-b bg-muted/20 px-3 text-[10px] font-semibold uppercase">
           <span className={connectionSecurity.environment === 'production' ? 'text-red-600' : 'text-muted-foreground'}>{connectionSecurity.environment}</span>
           <span className={connectionSecurity.safeMode === 'read-only' ? 'text-emerald-600' : 'text-muted-foreground'}>{connectionSecurity.safeMode}</span>
           <span className="text-muted-foreground">{connectionSecurity.sslMode === 'disable' ? 'TLS OFF' : `TLS ${connectionSecurity.sslMode}`}</span>
-          <span className="ml-auto text-muted-foreground">Timeout {connectionSecurity.queryTimeoutMs}ms</span>
+          <span className="ml-auto hidden text-muted-foreground sm:inline">Timeout {connectionSecurity.queryTimeoutMs}ms</span>
         </div>
         {!activeTable ? (
           <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
@@ -421,6 +432,7 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
                   toggleSort={toggleSort}
                   warnUnsaved={warnUnsaved}
                   readOnlyReason={readOnlyReason}
+                  hasActiveFilters={appliedFilters.some((filter: any) => filter.enabled)}
                   headerAction={
                     <DataViewerTableActions
                       connectionId={connectionId}
@@ -481,6 +493,8 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
           datePickerOpenColumn={recordEditor.datePickerOpenColumn}
           draftRow={recordEditor.draftRow}
           fkOptionsByColumn={fkOptionsByColumn}
+          fkSearchByColumn={fkSearchByColumn}
+          onFkSearch={setFkSearch}
           foreignKeyByColumn={foreignKeyByColumn}
           isRecordDirty={recordEditor.isRecordDirty}
           isCreatingRecord={recordEditor.isCreatingRecord}

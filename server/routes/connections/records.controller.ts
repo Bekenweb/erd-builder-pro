@@ -18,7 +18,7 @@ import {
 
 const mutationErrorStatus = (message: string) => /Safe Mode|Type ".*" to confirm/.test(message) ? 403 : 500;
 
-async function recordContext(req: ExpressRequest, id: string, table: string) {
+export async function recordContext(req: ExpressRequest, id: string, table: string) {
   const userId = (req as any).user.id;
   const catalog = await catalogsService.findCatalogById(id, userId);
   if (!catalog) throw new Error("Catalog not found");
@@ -26,19 +26,24 @@ async function recordContext(req: ExpressRequest, id: string, table: string) {
   if (info.type === "sqlite") throw new Error("Record editing is not supported for SQLite catalogs");
   const connector = getConnector(info.type);
   const { client, release } = await connector.connect(info);
-  const schema = await fetchSchemaForClient(client, info);
-  const tableSchema = schema.find((item: any) => item.table_name === table);
-  if (!tableSchema) {
+  // Release on every failure before the caller's try/finally exists, or each failed schema read leaks a pool slot (max 4).
+  try {
+    const schema = await fetchSchemaForClient(client, info);
+    const tableSchema = schema.find((item: any) => item.table_name === table);
+    if (!tableSchema) throw new Error("Invalid table name");
+    return { info, client, release, tableSchema };
+  } catch (err) {
     release();
-    throw new Error("Invalid table name");
+    throw err;
   }
-  return { info, client, release, tableSchema };
 }
 
 export async function queryRecords(req: ExpressRequest, res: ExpressResponse) {
   const userId = (req as any).user.id;
   const { id } = req.params;
   const { table, page = 1, pageSize = 50, filters, sort } = req.body;
+  // Page changes reuse the client's total/table size; only the first page of a table+filter asks for them.
+  const withTotal = req.body.withTotal !== false;
 
   if (!table?.trim()) {
     return res.status(400).json({ error: "table name is required" });
@@ -64,33 +69,43 @@ export async function queryRecords(req: ExpressRequest, res: ExpressResponse) {
       let where: ReturnType<typeof buildRecordWhere>;
       let orderSql = "";
       try {
-        where = buildRecordWhere(info.type, Array.isArray(filters) ? filters : [], allowedColumns);
-        orderSql = buildRecordOrder(info.type, sort, allowedColumns);
+        const search = req.body.search && typeof req.body.search === "object"
+          ? { value: String(req.body.search.value ?? ""), columns: Array.isArray(req.body.search.columns) ? req.body.search.columns.map(String) : undefined }
+          : undefined;
+        where = buildRecordWhere(info.type, Array.isArray(filters) ? filters : [], allowedColumns, search);
+        const primaryKey = (tableSchema.columns || []).filter((column: any) => column.is_pk).map((column: any) => column.name);
+        orderSql = buildRecordOrder(info.type, sort, allowedColumns, primaryKey);
       } catch (err: any) {
         return res.status(400).json({ error: err.message || "Invalid query options" });
       }
 
       let columns: string[] = [];
       let rows: Record<string, any>[] = [];
-      let total = 0;
-      const tableInfo = await fetchTableInfo(info.type, client, info.database, tableSchema);
+      let total: number | null = null;
+      const tableInfo = withTotal ? await fetchTableInfo(info.type, client, info.database, tableSchema) : null;
       const tableSql = tableSqlFor(info.type, tableSchema);
 
       if (info.type === "postgresql") {
-        const countRes = await (client as any).query(`SELECT COUNT(*)::int AS total FROM ${tableSql}${where.sql}`, where.params);
-        total = countRes.rows[0]?.total || 0;
+        if (withTotal) {
+          const countRes = await (client as any).query(`SELECT COUNT(*)::int AS total FROM ${tableSql}${where.sql}`, where.params);
+          total = countRes.rows[0]?.total || 0;
+        }
         const dataRes = await (client as any).query(`SELECT * FROM ${tableSql}${where.sql}${orderSql} LIMIT $${where.params.length + 1} OFFSET $${where.params.length + 2}`, [...where.params, limit, offset]);
         columns = dataRes.fields.map((f: any) => f.name);
         rows = dataRes.rows;
       } else if (info.type === "mysql") {
-        const [countRows] = await (client as any).execute(`SELECT COUNT(*) AS total FROM ${tableSql}${where.sql}`, where.params);
-        total = countRows[0]?.total || 0;
+        if (withTotal) {
+          const [countRows] = await (client as any).execute(`SELECT COUNT(*) AS total FROM ${tableSql}${where.sql}`, where.params);
+          total = Number(countRows[0]?.total || 0);
+        }
         const [dataRows, dataFields] = await (client as any).execute(`SELECT * FROM ${tableSql}${where.sql}${orderSql} LIMIT ${limit} OFFSET ${offset}`, where.params);
         columns = (dataFields || []).map((f: any) => f.name || f.column || f);
         rows = dataRows;
       } else if (info.type === "sqlite") {
-        const countResult = (client as any).exec(`SELECT COUNT(*) AS total FROM ${tableSql}${where.sql}`);
-        total = countResult[0]?.values[0]?.[0] || 0;
+        if (withTotal) {
+          const countResult = (client as any).exec(`SELECT COUNT(*) AS total FROM ${tableSql}${where.sql}`);
+          total = countResult[0]?.values[0]?.[0] || 0;
+        }
         const dataResult = (client as any).exec(`SELECT * FROM ${tableSql}${where.sql}${orderSql} LIMIT ${limit} OFFSET ${offset}`);
         if (dataResult[0]) {
           columns = dataResult[0].columns;

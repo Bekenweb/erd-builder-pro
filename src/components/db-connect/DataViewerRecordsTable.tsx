@@ -34,6 +34,7 @@ type DataViewerRecordsTableProps = {
   toggleSort: (column: string) => void;
   warnUnsaved: () => boolean;
   readOnlyReason?: string | null;
+  hasActiveFilters?: boolean;
   headerAction?: ReactNode;
   children?: ReactNode;
 };
@@ -91,6 +92,7 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
   toggleSort,
   warnUnsaved,
   readOnlyReason = null,
+  hasActiveFilters = false,
   headerAction,
   children,
 }: DataViewerRecordsTableProps) {
@@ -148,16 +150,16 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
         </div>
       ) : (
         <>
-          <div className="sticky top-0 z-20 px-4 py-2 border-b bg-background flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-medium">{activeTable}</h3>
+          <div className="sticky top-0 z-20 px-4 py-2 border-b bg-background flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="truncate text-sm font-medium">{activeTable}</h3>
               {records && (
                 <span className="text-xs text-muted-foreground">
                   {records.total} row{records.total !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               {headerAction}
               {/* Disabled buttons ignore pointer events, so the wrapper carries the read-only reason tooltip. */}
               <span className="flex" title={readOnlyReason ?? undefined}>
@@ -178,6 +180,9 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
           <div
             className="flex-1 overflow-auto custom-scrollbar min-h-0"
           >
+            {!records && isLoadingRecords && (
+              <div role="status" className="flex h-32 items-center justify-center text-sm text-muted-foreground">Loading records…</div>
+            )}
             {records && (
               <div className="min-w-fit inline-block align-middle">
               <table ref={tableRef} className="table-fixed caption-bottom text-sm" style={{ width: tableWidth }}>
@@ -251,7 +256,7 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
                   {records.rows.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={records.columns.length + (canSelectRows ? 1 : 0)} className="h-24 text-center text-muted-foreground text-sm">
-                        No rows
+                        {hasActiveFilters ? 'No rows match the current filters' : 'No rows'}
                       </TableCell>
                     </TableRow>
                   ) : (
