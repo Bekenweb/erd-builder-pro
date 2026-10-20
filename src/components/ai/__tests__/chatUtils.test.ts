@@ -112,3 +112,16 @@ describe('replyPaneTarget', () => {
     expect(replyPaneTarget('erd:closed', 'notes:b', lookup)).toBeUndefined();
   });
 });
+
+describe('replyPaneTarget', () => {
+  const panes = new Map([['erd:a', 'erd-scope']]);
+  const lookup = (key: string) => panes.get(key);
+  it('applies a reply to the file it was written for when that file is open in the other pane', () => {
+    expect(replyPaneTarget('erd:a', 'notes:b', lookup)).toBe('erd-scope');
+  });
+  it('keeps the focused editor for its own replies, unknown origins and closed panes', () => {
+    expect(replyPaneTarget('erd:a', 'erd:a', lookup)).toBeUndefined();
+    expect(replyPaneTarget(undefined, 'notes:b', lookup)).toBeUndefined();
+    expect(replyPaneTarget('erd:closed', 'notes:b', lookup)).toBeUndefined();
+  });
+});
