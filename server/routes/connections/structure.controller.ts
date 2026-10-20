@@ -4,7 +4,7 @@ import { fetchSchemaForClient, getConnector, invalidateSchemaCache } from "../..
 import { buildCatalogConnectionInfo } from "./middleware.js";
 import { assertDestructiveAllowed, assertWritable } from "../../lib/db-connectors/security.js";
 import * as catalogsService from "./catalogs.service.js";
-import { quoteIdentifier } from "./record-helpers.js";
+import { quoteIdentifier, tableSqlFor } from "./record-helpers.js";
 import { buildConstraintStatements, buildCreateTableSql, buildIndexStatements, buildStructureStatements, removedEnumValues } from "./structure-helpers.js";
 import { logger } from "../../lib/logger.js";
 
@@ -98,11 +98,7 @@ export function normalizeMySqlCreateTableDefaults(statement: string) {
   );
 }
 
-function tableSql(type: string, tableSchema: any) {
-  return type === "postgresql" && tableSchema.table_schema
-    ? `${quoteIdentifier(type, tableSchema.table_schema)}.${quoteIdentifier(type, tableSchema.table_name)}`
-    : quoteIdentifier(type, tableSchema.table_name);
-}
+const tableSql = tableSqlFor;
 
 async function assertRemovedEnumValuesUnused(type: string, client: any, tableSchema: any, patch: any) {
   if (!patch.columnName || !patch.column || patch.columnName === "__new__") return;

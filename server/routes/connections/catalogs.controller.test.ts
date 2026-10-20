@@ -3,7 +3,7 @@ import initSqlJs from "sql.js";
 import { sqliteConnector } from "../../lib/db-connectors/sqlite.js";
 import { postgresqlConnector } from "../../lib/db-connectors/postgresql.js";
 import { buildRecordDelete, buildRecordInsert, buildRecordUpdate, buildRecordWhere, validateRecordValues } from "./catalogs.controller.js";
-import { fetchTableInfo } from "./record-helpers.js";
+import { executeInTransaction, fetchTableInfo, tableSqlFor } from "./record-helpers.js";
 import { buildExplainQuery, buildLimitedSelectQuery, normalizeSelectQuery } from "./query-helpers.js";
 import { buildConstraintStatements, buildCreateTableSql, buildIndexStatements, buildStructureStatements, removedEnumValues } from "./structure-helpers.js";
 import { extractMySqlCreatedTables, MAX_SQL_IMPORT_BYTES, normalizeMySqlCreateTableDefaults, splitSqlStatements, validateImportSql } from "./structure.controller.js";
@@ -25,6 +25,25 @@ describe("custom query helpers", () => {
     expect(() => normalizeSelectQuery("UPDATE users SET name = 'x'")).toThrow("Only SELECT queries are allowed");
     expect(() => normalizeSelectQuery("SELECT 1; SELECT 2")).toThrow("Only one SQL statement is allowed");
     expect(() => normalizeSelectQuery("WITH changed AS (DELETE FROM users RETURNING id) SELECT * FROM changed")).toThrow("Only read-only SQL queries are allowed");
+  });
+
+  it("accepts keywords and semicolons inside literals or comments but never hides real code", () => {
+    expect(normalizeSelectQuery("SELECT 'update; drop table x' AS note")).toBe("SELECT 'update; drop table x' AS note");
+    expect(normalizeSelectQuery('SELECT "delete" FROM t WHERE name = \'it\'\'s; ok\'')).toBe('SELECT "delete" FROM t WHERE name = \'it\'\'s; ok\'');
+    expect(normalizeSelectQuery("-- create report;\nSELECT 1 /* insert; */ FROM t; -- done;")).toBe("SELECT 1 /* insert; */ FROM t");
+    expect(normalizeSelectQuery("SELECT `drop` FROM t")).toBe("SELECT `drop` FROM t");
+    // Still rejected: real statements, ambiguous quoting falls back to the strict raw check.
+    expect(() => normalizeSelectQuery("SELECT 'a'; DROP TABLE t")).toThrow("Only one SQL statement");
+    expect(() => normalizeSelectQuery("SELECT E'a\\'', 1; SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE; SELECT ''")).toThrow();
+    expect(() => normalizeSelectQuery("SELECT 'path\\dir' AS p")).not.toThrow();
+    expect(() => normalizeSelectQuery("SELECT 'path\\dir; update' AS p")).toThrow();
+    expect(() => normalizeSelectQuery("SELECT 1 /*!50000 , (DELETE FROM t) */")).toThrow();
+    expect(() => normalizeSelectQuery("SELECT 1--1; DROP TABLE t")).toThrow("Only one SQL statement");
+    expect(() => normalizeSelectQuery("SELECT 1 # ; DROP TABLE t")).toThrow("Only one SQL statement");
+    expect(() => normalizeSelectQuery("SELECT 'unterminated; drop")).toThrow();
+    expect(() => normalizeSelectQuery("/* a /* b */ ; DROP TABLE t; */ SELECT 1")).toThrow();
+    expect(() => normalizeSelectQuery("-- SELECT\nDELETE FROM t")).toThrow("Only SELECT queries are allowed");
+    expect(buildLimitedSelectQuery("SELECT 1 -- trailing comment", 10).sql).toBe("SELECT * FROM (SELECT 1) AS erdbpro_limited_query LIMIT 11");
   });
 
   it("bounds executable Note query results without trusting the requested limit", () => {
@@ -49,6 +68,13 @@ describe("catalog type metadata", () => {
       return { rows: [] };
     } }, {} as any);
     expect(query).toContain("pg_catalog.format_type(a.atttypid, a.atttypmod)");
+  });
+
+  it("reads only real CHECK constraints so implicit NOT NULL rows never reach structure SQL", async () => {
+    let query = "";
+    await postgresqlConnector.fetchSchema({ query: async (sql: string) => { query = sql; return { rows: [] }; } }, {} as any);
+    expect(query).toContain("con.contype = 'c'");
+    expect(query).not.toContain("information_schema.check_constraints");
   });
 });
 
@@ -156,6 +182,30 @@ describe("buildRecordWhere", () => {
       price: 123.45,
       meta: { ok: true },
     });
+  });
+
+  it("accepts exact BIGINT/DECIMAL text and rejects lossy or malformed numbers", () => {
+    const columns = new Map<string, any>([
+      ["big", { name: "big", type: "bigint", is_nullable: false }],
+      ["ubig", { name: "ubig", type: "bigint", full_type: "bigint unsigned", is_nullable: false }],
+      ["amount", { name: "amount", type: "decimal", is_nullable: false, numeric_precision: 18, numeric_scale: 2 }],
+      ["ratio", { name: "ratio", type: "double", is_nullable: false }],
+    ]);
+
+    expect(validateRecordValues("mysql", { big: "9007199254740993", ubig: "18446744073709551615", amount: "1234567890123456.78" }, columns)).toEqual({
+      big: "9007199254740993",
+      ubig: "18446744073709551615",
+      amount: "1234567890123456.78",
+    });
+    expect(validateRecordValues("postgresql", { big: 42, amount: 1.5 }, columns)).toEqual({ big: 42, amount: 1.5 });
+    expect(() => validateRecordValues("mysql", { big: 9007199254740992 }, columns)).toThrow("integer");
+    expect(() => validateRecordValues("mysql", { big: "12.5" }, columns)).toThrow("integer");
+    expect(() => validateRecordValues("mysql", { big: "1e3" }, columns)).toThrow("integer");
+    expect(() => validateRecordValues("mysql", { ubig: "-1" }, columns)).toThrow("unsigned");
+    expect(() => validateRecordValues("mysql", { amount: "abc" }, columns)).toThrow("numeric");
+    expect(() => validateRecordValues("mysql", { amount: "12345678901234567.8" }, columns)).toThrow("numeric precision");
+    expect(() => validateRecordValues("mysql", { amount: "1.234" }, columns)).toThrow("numeric scale");
+    expect(() => validateRecordValues("mysql", { ratio: "0.5" }, columns)).toThrow("numeric");
   });
 
   it("allows only 0 or 1 for boolean columns and normalizes PostgreSQL booleans", () => {
@@ -518,5 +568,81 @@ describe("SQLite schema metadata", () => {
     }));
 
     db.close();
+  });
+});
+
+describe("executeInTransaction", () => {
+  const fakeClient = (failOn?: string) => {
+    const calls: string[] = [];
+    const run = async (sql: string) => {
+      calls.push(sql);
+      if (sql === failOn) throw new Error("row 2 failed");
+      return { rows: [] };
+    };
+    return { calls, client: { query: run, execute: run } };
+  };
+  const statements = [
+    { sql: "UPDATE t SET a = 1 WHERE id = 1", params: [] },
+    { sql: "UPDATE t SET a = 2 WHERE id = 2", params: [] },
+  ];
+
+  it("commits every statement in one transaction", async () => {
+    const pg = fakeClient();
+    await executeInTransaction("postgresql", pg.client, statements);
+    expect(pg.calls).toEqual(["BEGIN", ...statements.map(item => item.sql), "COMMIT"]);
+
+    const mysql = fakeClient();
+    await executeInTransaction("mysql", mysql.client, statements);
+    expect(mysql.calls).toEqual(["START TRANSACTION", ...statements.map(item => item.sql), "COMMIT"]);
+  });
+
+  it("rolls back earlier rows when a later row fails and rethrows the original error", async () => {
+    const pg = fakeClient(statements[1].sql);
+    await expect(executeInTransaction("postgresql", pg.client, statements)).rejects.toThrow("row 2 failed");
+    expect(pg.calls).toEqual(["BEGIN", statements[0].sql, statements[1].sql, "ROLLBACK"]);
+  });
+});
+
+describe("PostgreSQL schema/table identity", () => {
+  const column = (name: string, extra: Record<string, any> = {}) => ({ name, type: "integer", full_type: "integer", is_nullable: false, ...extra });
+  const pgRows = [
+    { table_name: "users", table_schema: "public", columns: [column("id", { is_pk: true })], foreign_keys: [] },
+    { table_name: "users", table_schema: "tenant", columns: [column("id", { is_pk: true })], foreign_keys: [] },
+    { table_name: "orders", table_schema: "tenant", columns: [column("id", { is_pk: true }), column("user_id")],
+      foreign_keys: [{ column: "user_id", ref_schema: "tenant", ref_table: "users", ref_column: "id", constraint_name: "orders_user_fk" }] },
+  ];
+  const fetchSchema = () => postgresqlConnector.fetchSchema({ query: async () => ({ rows: pgRows }) }, {} as any);
+
+  it("keys non-public tables as schema.table and qualifies FK targets", async () => {
+    const schema = await fetchSchema();
+    expect(schema.map(table => table.table_name)).toEqual(["users", "tenant.users", "tenant.orders"]);
+    expect(schema.map(table => table.base_name)).toEqual(["users", "users", "orders"]);
+    expect(schema[2].foreign_keys).toEqual([{ column: "user_id", ref_table: "tenant.users", ref_column: "id", constraint_name: "orders_user_fk" }]);
+  });
+
+  it("builds record SQL against the right schema", async () => {
+    const [publicUsers, tenantUsers] = await fetchSchema();
+    expect(tableSqlFor("postgresql", publicUsers)).toBe('"public"."users"');
+    expect(tableSqlFor("postgresql", tenantUsers)).toBe('"tenant"."users"');
+    expect(tableSqlFor("mysql", { table_name: "users", table_schema: "app" })).toBe("`users`");
+  });
+
+  it("keeps structure statements on the selected schema", async () => {
+    const schema = await fetchSchema();
+    const [, tenantUsers, tenantOrders] = schema;
+    expect(buildStructureStatements("postgresql", {}, { deleteTables: ["tenant.users"] } as any, schema)).toEqual(['DROP TABLE "tenant"."users"']);
+    expect(buildStructureStatements("postgresql", {}, { truncateTables: ["users"] } as any, schema)).toEqual(['TRUNCATE TABLE "public"."users"']);
+    expect(buildStructureStatements("postgresql", {}, { cloneTable: { source: "tenant.users", target: "users_copy" } } as any, schema))
+      .toEqual(['CREATE TABLE "tenant"."users_copy" (LIKE "tenant"."users" INCLUDING ALL)']);
+    expect(() => buildStructureStatements("postgresql", {}, { cloneTable: { source: "tenant.orders", target: "users" } } as any, schema)).toThrow("already exists");
+    expect(buildStructureStatements("postgresql", tenantUsers, { tableName: "tenant.users", tableComment: "x" } as any, schema))
+      .toEqual(['COMMENT ON TABLE "tenant"."users" IS \'x\'']);
+    expect(buildStructureStatements("postgresql", tenantOrders, { tableName: "tenant.purchases" } as any, schema))
+      .toEqual(['ALTER TABLE "tenant"."orders" RENAME TO "purchases"']);
+    expect(() => buildStructureStatements("postgresql", tenantUsers, { tableName: "accounts" } as any, schema)).toThrow("referenced by child table");
+    expect(buildStructureStatements("postgresql", tenantOrders, {
+      columnName: "user_id", column: column("user_id"),
+      foreignKey: { enabled: true, ref_table: "tenant.users", ref_column: "id", constraint_name: "orders_user_fk2" },
+    } as any, schema).at(-1)).toContain('REFERENCES "tenant"."users" ("id")');
   });
 });

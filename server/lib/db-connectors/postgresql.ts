@@ -148,15 +148,15 @@ export const postgresqlConnector: DbConnector = {
           AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
       ),
       check_data AS (
-        SELECT tc.table_schema, tc.table_name,
-          json_agg(json_build_object('name', tc.constraint_name, 'expression', cc.check_clause)) AS checks
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.check_constraints cc
-          ON cc.constraint_schema = tc.constraint_schema
-          AND cc.constraint_name = tc.constraint_name
-        WHERE tc.constraint_type = 'CHECK'
-          AND tc.table_schema NOT IN ('pg_catalog', 'information_schema')
-        GROUP BY tc.table_schema, tc.table_name
+        -- pg_constraint, not information_schema: the latter also lists implicit NOT NULL rows named like 2200_123_1_not_null.
+        SELECT ns.nspname AS table_schema, cl.relname AS table_name,
+          json_agg(json_build_object('name', con.conname, 'expression', pg_get_expr(con.conbin, con.conrelid)) ORDER BY con.conname) AS checks
+        FROM pg_constraint con
+        JOIN pg_class cl ON cl.oid = con.conrelid
+        JOIN pg_namespace ns ON ns.oid = cl.relnamespace
+        WHERE con.contype = 'c'
+          AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
+        GROUP BY ns.nspname, cl.relname
       )
       SELECT
         td.table_name,
@@ -167,6 +167,7 @@ export const postgresqlConnector: DbConnector = {
           (SELECT json_agg(
             json_build_object(
               'column', fd.source_column,
+              'ref_schema', fd.target_schema,
               'ref_table', fd.target_table,
               'ref_column', fd.target_column,
               'constraint_name', fd.constraint_name,
@@ -214,12 +215,16 @@ export const postgresqlConnector: DbConnector = {
         AND cd.table_name = td.table_name
       ORDER BY td.table_name
     `);
+    // Non-public tables are keyed as schema.table so same-named tables in different schemas stay distinct.
+    // shortcut: a public table literally named "a.b" would collide with table b in schema a; rare, upgrade to a separate key field if it appears.
+    const key = (schema: string, table: string) => schema && schema !== "public" ? `${schema}.${table}` : table;
     return result.rows.map((row: any) => ({
-      table_name: row.table_name,
+      table_name: key(row.table_schema, row.table_name),
+      base_name: row.table_name,
       table_schema: row.table_schema,
       comment: row.table_comment || null,
       columns: row.columns || [],
-      foreign_keys: row.foreign_keys || [],
+      foreign_keys: (row.foreign_keys || []).map(({ ref_schema, ...fk }: any) => ({ ...fk, ref_table: key(ref_schema, fk.ref_table) })),
       indexes: row.indexes || [],
       checks: row.checks || [],
     }));

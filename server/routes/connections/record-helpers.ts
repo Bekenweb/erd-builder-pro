@@ -20,12 +20,22 @@ type TableInfo = {
 const INTEGER_TYPES = new Set(["smallint", "integer", "int", "bigint", "serial", "bigserial", "smallserial", "tinyint", "mediumint"]);
 const NUMERIC_TYPES = new Set(["decimal", "numeric", "real", "double precision", "double", "float", "money"]);
 const DECIMAL_TYPES = new Set(["decimal", "numeric"]);
+const INTEGER_TEXT = /^[+-]?\d+$/;
+const DECIMAL_TEXT = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
 const DATE_TYPES = new Set(["date"]);
 const TIME_TYPES = new Set(["time", "time without time zone", "time with time zone"]);
 const DATETIME_TYPES = new Set(["timestamp", "timestamp without time zone", "timestamp with time zone", "datetime"]);
 
 export function quoteIdentifier(type: string, name: string) {
   return type === "mysql" ? `\`${name.replace(/`/g, "``")}\`` : `"${name.replace(/"/g, '""')}"`;
+}
+
+// Quoted table reference for SQL; PostgreSQL tables are always schema-qualified so public.users and tenant.users never mix.
+export function tableSqlFor(type: string, tableSchema: { table_name: string; table_schema?: string; base_name?: string }) {
+  const name = tableSchema.base_name ?? tableSchema.table_name;
+  return type === "postgresql" && tableSchema.table_schema
+    ? `${quoteIdentifier(type, tableSchema.table_schema)}.${quoteIdentifier(type, name)}`
+    : quoteIdentifier(type, name);
 }
 
 function quoteSqliteValue(value: string) {
@@ -97,15 +107,18 @@ export function validateRecordValues(type: string, values: Record<string, any>, 
     if (typeof value === "string" && column.max_length && value.length > Number(column.max_length)) {
       throw new Error(`Value too long for ${columnName}; max ${column.max_length} characters`);
     }
-    if (INTEGER_TYPES.has(columnType) && (typeof value !== "number" || !Number.isInteger(value))) {
+    // Exact types accept numeric text so BIGINT/DECIMAL values beyond JS number precision round-trip unchanged.
+    if (INTEGER_TYPES.has(columnType) && !(typeof value === "number" ? Number.isSafeInteger(value) : typeof value === "string" && INTEGER_TEXT.test(value))) {
       throw new Error(`Column must be an integer: ${columnName}`);
     }
-    if (NUMERIC_TYPES.has(columnType) && (typeof value !== "number" || !Number.isFinite(value))) {
+    if (NUMERIC_TYPES.has(columnType) && !(typeof value === "number" ? Number.isFinite(value) : DECIMAL_TYPES.has(columnType) && typeof value === "string" && DECIMAL_TEXT.test(value))) {
       throw new Error(`Column must be numeric: ${columnName}`);
     }
     if (DECIMAL_TYPES.has(columnType) && column.numeric_precision) {
-      const [whole, fraction = ""] = String(Math.abs(value)).split(".");
-      if (whole.replace(/^0+/, "").length + fraction.length > Number(column.numeric_precision)) {
+      const [whole, fraction = ""] = String(value).replace(/^[+-]/, "").split(".");
+      const wholeDigits = whole.replace(/^0+/, "").length;
+      const scale = column.numeric_scale === null || column.numeric_scale === undefined ? 0 : Number(column.numeric_scale);
+      if (wholeDigits + fraction.length > Number(column.numeric_precision) || wholeDigits > Number(column.numeric_precision) - scale) {
         throw new Error(`Value exceeds numeric precision for ${columnName}`);
       }
       if (column.numeric_scale !== null && column.numeric_scale !== undefined && fraction.length > Number(column.numeric_scale)) {
@@ -252,7 +265,7 @@ export async function fetchTableInfo(type: string, client: any, database: string
         pg_relation_size(format('%I.%I', $1::text, $2::text)::regclass)::bigint AS data_size,
         pg_indexes_size(format('%I.%I', $1::text, $2::text)::regclass)::bigint AS index_size,
         pg_total_relation_size(format('%I.%I', $1::text, $2::text)::regclass)::bigint AS total_size`,
-      [tableSchema.table_schema || "public", tableSchema.table_name],
+      [tableSchema.table_schema || "public", tableSchema.base_name ?? tableSchema.table_name],
     );
     return {
       dataSize: Number(result.rows[0]?.data_size ?? 0),
@@ -277,4 +290,21 @@ export async function fetchTableInfo(type: string, client: any, database: string
   }
 
   return { dataSize: null, indexSize: null, totalSize: null };
+}
+
+type RecordStatement = { sql: string; params: any[] };
+
+// Runs record mutations atomically so a failure in a later row rolls back earlier rows.
+export async function executeInTransaction(type: string, client: any, statements: RecordStatement[]) {
+  const run = (statement: RecordStatement) => type === "postgresql"
+    ? client.query(statement.sql, statement.params)
+    : client.execute(statement.sql, statement.params);
+  await client.query(type === "mysql" ? "START TRANSACTION" : "BEGIN");
+  try {
+    for (const statement of statements) await run(statement);
+    await client.query("COMMIT");
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch {}
+    throw err;
+  }
 }

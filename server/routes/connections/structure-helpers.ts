@@ -1,4 +1,4 @@
-import { quoteIdentifier } from "./record-helpers.js";
+import { quoteIdentifier, tableSqlFor } from "./record-helpers.js";
 import {
   columnTypeOption,
   MYSQL_COLUMN_TYPES,
@@ -205,6 +205,9 @@ function assertCheckExpression(value: any) {
   return expression;
 }
 
+// table_name may be a schema-qualified key (see the PostgreSQL connector); SQL needs the bare name.
+const baseName = (tableSchema: any) => String(tableSchema.base_name ?? tableSchema.table_name ?? "");
+
 function tableSql(type: string, schema: string | undefined, table: string) {
   return type === "postgresql" && schema
     ? `${quoteIdentifier(type, schema)}.${quoteIdentifier(type, table)}`
@@ -308,35 +311,34 @@ function indexSql(type: string, tableNameSql: string, index: NonNullable<Structu
 export function buildStructureStatements(type: string, tableSchema: any, patch: StructurePatch, schema: any[] = []) {
   if (type !== "postgresql" && type !== "mysql") throw new Error("Structure editing is only supported for PostgreSQL and MySQL catalogs");
 
-  const validTables = (tableNames: string[]) => {
-    const tables = [...new Set(tableNames.map(String))];
-    for (const table of tables) {
-      assertIdentifier(table, "table name");
-      if (!schema.some((item: any) => item.table_name === table)) throw new Error(`Invalid table name: ${table}`);
-    }
-    return tables;
-  };
+  const validTables = (tableNames: string[]) => [...new Set(tableNames.map(String))].map(table => {
+    const entry = schema.find((item: any) => item.table_name === table);
+    if (!entry) throw new Error(`Invalid table name: ${table}`);
+    assertIdentifier(baseName(entry), "table name");
+    return entry;
+  });
 
   if (Array.isArray(patch.deleteTables) && patch.deleteTables.length > 0) {
     const tables = validTables(patch.deleteTables);
-    const drops = tables.map(table => `DROP TABLE ${quoteIdentifier(type, table)}${type === "postgresql" && patch.cascade ? " CASCADE" : ""}`);
+    const drops = tables.map(table => `DROP TABLE ${tableSqlFor(type, table)}${type === "postgresql" && patch.cascade ? " CASCADE" : ""}`);
     if (type === "mysql" && patch.ignoreForeignKeys) return ["SET FOREIGN_KEY_CHECKS=0", ...drops, "SET FOREIGN_KEY_CHECKS=1"];
     return drops;
   }
   if (Array.isArray(patch.truncateTables) && patch.truncateTables.length > 0) {
     const tables = validTables(patch.truncateTables);
-    const truncates = tables.map(table => `TRUNCATE TABLE ${quoteIdentifier(type, table)}${type === "postgresql" && patch.cascade ? " CASCADE" : ""}`);
+    const truncates = tables.map(table => `TRUNCATE TABLE ${tableSqlFor(type, table)}${type === "postgresql" && patch.cascade ? " CASCADE" : ""}`);
     if (type === "mysql" && patch.ignoreForeignKeys) return ["SET FOREIGN_KEY_CHECKS=0", ...truncates, "SET FOREIGN_KEY_CHECKS=1"];
     return truncates;
   }
   if (patch.cloneTable) {
     const source = String(patch.cloneTable.source || "");
     const target = String(patch.cloneTable.target || "");
-    validTables([source]);
+    const [sourceTable] = validTables([source]);
     assertIdentifier(target, "table name");
-    if (schema.some((item: any) => item.table_name === target)) throw new Error("Table already exists");
-    const sourceSql = quoteIdentifier(type, source);
-    const targetSql = quoteIdentifier(type, target);
+    const targetTable = { ...sourceTable, table_name: target, base_name: target };
+    if (schema.some((item: any) => item.table_name === target || (item.table_schema === sourceTable.table_schema && baseName(item) === target))) throw new Error("Table already exists");
+    const sourceSql = tableSqlFor(type, sourceTable);
+    const targetSql = tableSqlFor(type, targetTable);
     return type === "postgresql"
       ? [`CREATE TABLE ${targetSql} (LIKE ${sourceSql} INCLUDING ALL)`, ...(patch.cloneTable.withData ? [`INSERT INTO ${targetSql} SELECT * FROM ${sourceSql}`] : [])]
       : [`CREATE TABLE ${targetSql} LIKE ${sourceSql}`, ...(patch.cloneTable.withData ? [`INSERT INTO ${targetSql} SELECT * FROM ${sourceSql}`] : [])];
@@ -371,8 +373,12 @@ export function buildStructureStatements(type: string, tableSchema: any, patch: 
     return statements;
   }
 
-  const currentTable = String(tableSchema.table_name || "");
-  const nextTable = String(patch.tableName || currentTable);
+  const currentTable = baseName(tableSchema);
+  const requestedTable = String(patch.tableName || "");
+  const schemaPrefix = `${tableSchema.table_schema}.`;
+  const nextTable = !requestedTable || requestedTable === tableSchema.table_name
+    ? currentTable
+    : requestedTable.startsWith(schemaPrefix) && tableSchema.base_name !== tableSchema.table_name ? requestedTable.slice(schemaPrefix.length) : requestedTable;
   assertIdentifier(currentTable, "table name");
   assertIdentifier(nextTable, "table name");
 
@@ -386,7 +392,7 @@ export function buildStructureStatements(type: string, tableSchema: any, patch: 
     return [`ALTER TABLE ${oldTableSql} DROP COLUMN ${quoteIdentifier(type, columnName)}`];
   }
   if (nextTable !== currentTable) {
-    assertTableRenameAllowed(currentTable, nextTable, schema);
+    assertTableRenameAllowed(String(tableSchema.table_name), nextTable, schema);
     statements.push(type === "postgresql"
       ? `ALTER TABLE ${oldTableSql} RENAME TO ${quoteIdentifier(type, nextTable)}`
       : `RENAME TABLE ${quoteIdentifier(type, currentTable)} TO ${quoteIdentifier(type, nextTable)}`);
@@ -451,9 +457,9 @@ export function buildStructureStatements(type: string, tableSchema: any, patch: 
   if (patch.foreignKey?.enabled) {
     const refTable = String(patch.foreignKey.ref_table || "");
     const refColumn = String(patch.foreignKey.ref_column || "");
-    assertIdentifier(refTable, "referenced table");
-    assertIdentifier(refColumn, "referenced column");
     const refTableSchema = schema.find((item: any) => item.table_name === refTable);
+    assertIdentifier(refTableSchema ? baseName(refTableSchema) : refTable, "referenced table");
+    assertIdentifier(refColumn, "referenced column");
     const refColumnSchema = refTableSchema?.columns?.find((column: any) => column.name === refColumn);
     if (schema.length > 0 && !refColumnSchema) throw new Error("Invalid referenced column");
     if (refColumnSchema) assertCompatibleType(type, nextType, refColumnSchema);
@@ -461,7 +467,7 @@ export function buildStructureStatements(type: string, tableSchema: any, patch: 
     assertIdentifier(name, "foreign key constraint name");
     const onDelete = fkAction(patch.foreignKey.on_delete);
     const onUpdate = fkAction(patch.foreignKey.on_update);
-    statements.push(`ALTER TABLE ${workingTableSql} ADD CONSTRAINT ${quoteIdentifier(type, name)} FOREIGN KEY (${nextColumnSql}) REFERENCES ${quoteIdentifier(type, refTable)} (${quoteIdentifier(type, refColumn)}) ON DELETE ${onDelete} ON UPDATE ${onUpdate}`);
+    statements.push(`ALTER TABLE ${workingTableSql} ADD CONSTRAINT ${quoteIdentifier(type, name)} FOREIGN KEY (${nextColumnSql}) REFERENCES ${refTableSchema ? tableSqlFor(type, refTableSchema) : quoteIdentifier(type, refTable)} (${quoteIdentifier(type, refColumn)}) ON DELETE ${onDelete} ON UPDATE ${onUpdate}`);
   }
 
   return statements;
@@ -469,7 +475,7 @@ export function buildStructureStatements(type: string, tableSchema: any, patch: 
 
 export function buildIndexStatements(type: string, tableSchema: any, patch: StructurePatch) {
   if (type !== "postgresql" && type !== "mysql") throw new Error("Structure editing is only supported for PostgreSQL and MySQL catalogs");
-  const currentTable = String(tableSchema.table_name || "");
+  const currentTable = baseName(tableSchema);
   assertIdentifier(currentTable, "table name");
   const tableNameSql = tableSql(type, tableSchema.table_schema, currentTable);
   const statements: string[] = [];
@@ -497,7 +503,7 @@ export function buildIndexStatements(type: string, tableSchema: any, patch: Stru
 
 export function buildConstraintStatements(type: string, tableSchema: any, patch: StructurePatch) {
   if (type !== "postgresql" && type !== "mysql") throw new Error("Check constraint editing is only supported for PostgreSQL and MySQL catalogs");
-  const tableName = String(tableSchema.table_name || "");
+  const tableName = baseName(tableSchema);
   assertIdentifier(tableName, "table name");
   const tableNameSql = tableSql(type, tableSchema.table_schema, tableName);
   if (patch.deleteCheckName) {
@@ -528,7 +534,7 @@ export function buildConstraintStatements(type: string, tableSchema: any, patch:
 }
 
 export function buildCreateTableSql(type: string, tableSchema: any) {
-  const tableName = String(tableSchema.table_name || "");
+  const tableName = baseName(tableSchema);
   assertIdentifier(tableName, "table name");
   const lines = (tableSchema.columns || []).map((column: any) => {
     const name = quoteIdentifier(type, column.name);

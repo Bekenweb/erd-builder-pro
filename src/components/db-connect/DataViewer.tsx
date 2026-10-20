@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 import { useDataViewer } from '@/hooks/useDataViewer';
 import { useInlineRecordDrafts } from '@/hooks/useInlineRecordDrafts';
+import { useLeaveGuard } from '@/hooks/useLeaveGuard';
 import { useRecordEditor } from '@/hooks/useRecordEditor';
 import { useStructureEditor } from '@/hooks/useStructureEditor';
 import { DataViewerConfirmModal } from './DataViewerConfirmModal';
@@ -88,6 +89,8 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
   recordDirtyRef.current = recordEditor.isRecordDirty;
   selectedRowRef.current = recordEditor.selectedRow;
   structureDirtyRef.current = structureEditor.isDirty;
+  const readOnlyReason = connectionSecurity.safeMode === 'read-only' ? 'Read-only connection: Safe Mode blocks changes. Edit the connection to allow writes.' : null;
+  useLeaveGuard(recordDraftCount > 0 || recordEditor.isRecordDirty || structureEditor.isDirty, 'You have unsaved DB Client changes. Leave this page and discard them?');
   const warnUnsaved = useCallback(() => {
     if (recordDraftCountRef.current > 0) {
       toast.warning('Save or discard inline record changes first.');
@@ -315,7 +318,9 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
         recordEditor.selectRow(records?.rows?.[0] || null);
       } else if (key === 's') {
         e.preventDefault();
-        if (recordDraftCount > 0) {
+        if (readOnlyReason) {
+          toast.warning(readOnlyReason);
+        } else if (recordDraftCount > 0) {
           inlineDrafts.save();
         } else if (activeView === 'structure') {
           handleSubmitStructure();
@@ -326,7 +331,7 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [activeTable, activeView, handleRefresh, handleSubmitStructure, inlineDrafts.save, recordDraftCount, toggleFilters, recordEditor.selectRows, recordEditor.submitRecord, records, warnUnsaved]);
+  }, [activeTable, activeView, handleRefresh, handleSubmitStructure, inlineDrafts.save, readOnlyReason, recordDraftCount, toggleFilters, recordEditor.selectRows, recordEditor.submitRecord, records, warnUnsaved]);
 
   return (
     <div
@@ -351,6 +356,7 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
         }}
         onDeleteTables={deleteTables} onMutateTables={handleMutateTables} onRefreshTables={refreshAll} onSelectTable={handleSelectTable}
         setTableSearch={setTableSearch}
+        readOnlyReason={readOnlyReason}
       />
 
       <div className="flex-1 grid grid-rows-[auto_1fr_auto] overflow-hidden">
@@ -414,6 +420,7 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
                   onToggleSelectedRow={handleToggleSelectedRow}
                   toggleSort={toggleSort}
                   warnUnsaved={warnUnsaved}
+                  readOnlyReason={readOnlyReason}
                   headerAction={
                     <DataViewerTableActions
                       connectionId={connectionId}
@@ -488,6 +495,7 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
           onSubmitCreateRecord={recordEditor.submitCreateRecord}
           onSubmitRecord={recordEditor.submitRecord}
           warnUnsaved={warnUnsaved}
+          readOnlyReason={readOnlyReason}
         />
       )}
       {activeView === 'structure' && structureEditor.target && structureEditor.draft && (
@@ -496,6 +504,7 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
           draft={structureEditor.draft}
           isDirty={structureEditor.isDirty}
           isSaving={structureEditor.isSaving}
+          readOnlyReason={readOnlyReason}
           tables={tables}
           dbType={dbType}
           referenceColumns={structureEditor.referenceColumns}
@@ -520,6 +529,8 @@ export const DataViewer = memo(function DataViewer({ connectionId, stateKey, onD
         onDeleteRecords={handleConfirmDeleteRecord}
         onDeleteStructure={handleDeleteStructure}
         confirmationTarget={connectionSecurity.environment === 'production' || connectionSecurity.safeMode === 'protected' ? activeTable : null}
+        recordCount={recordEditor.selectedRowKeys.size}
+        tableName={activeTable}
       />
       <ConfirmModal
         isOpen={discardRefreshOpen}

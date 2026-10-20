@@ -11,6 +11,8 @@ const connectionConfig = (info: ConnectionInfo) => ({
   password: info.password || "",
   database: info.database,
   connectTimeout: 5000,
+  // BIGINT beyond Number.MAX_SAFE_INTEGER comes back as exact text; smaller values stay numbers.
+  supportBigNumbers: true,
   ssl: tlsOptions(info),
 });
 

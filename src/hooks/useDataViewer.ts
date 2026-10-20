@@ -337,17 +337,19 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
 
   const updateRecords = useCallback(async (table: string, updates: { key: Record<string, any>; values: Record<string, any> }[]) => {
     if (!connectionId || updates.length === 0) return;
-    for (const update of updates) {
+    try {
+      // One request: the server applies every row in a single transaction or none of them.
       const res = await apiFetch(`/api/catalogs/${connectionId}/records`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table, key: update.key, values: update.values }),
+        body: JSON.stringify({ table, updates }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update record');
+      if (!res.ok) throw new Error(data.error || 'Failed to update records');
+    } finally {
+      clearRecordCache();
+      if (activeTable === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
     }
-    clearRecordCache();
-    if (activeTable === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
   }, [activeTable, clearRecordCache, connectionId, fetchRecords, page]);
 
   const createRecord = useCallback(async (table: string, values: Record<string, any>) => {
@@ -366,16 +368,19 @@ export function useDataViewer(connectionId: number | null, stateKey?: string) {
 
   const deleteRecord = useCallback(async (table: string, key: Record<string, any> | Record<string, any>[], confirmation?: string) => {
     if (!connectionId) return;
-    const res = await apiFetch(`/api/catalogs/${connectionId}/records`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(Array.isArray(key) ? { table, keys: key, confirmation } : { table, key, confirmation }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to delete record');
-    clearRecordCache();
-    if (activeTable === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
-    return data;
+    try {
+      const res = await apiFetch(`/api/catalogs/${connectionId}/records`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Array.isArray(key) ? { table, keys: key, confirmation } : { table, key, confirmation }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete record');
+      return data;
+    } finally {
+      clearRecordCache();
+      if (activeTable === table) fetchRecords(table, pageByTableRef.current[table] ?? page);
+    }
   }, [activeTable, clearRecordCache, connectionId, fetchRecords, page]);
 
   const mutateTables = useCallback(async (patch: Record<string, any>) => {
