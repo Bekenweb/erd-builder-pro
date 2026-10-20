@@ -41,6 +41,7 @@ type Props = {
   mode?: 'menu' | 'button' | 'dropdown' | 'context-item';
   buttonClassName?: string;
   disabled?: boolean;
+  readOnlyReason?: string | null;
   onDeleteTables: (tableNames: string[], options: { ignoreForeignKeys?: boolean; cascade?: boolean; confirmation?: string }) => Promise<any>;
   onMutateTables: (patch: Record<string, any>) => Promise<any>;
 };
@@ -89,7 +90,7 @@ function saveBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export function DataViewerTableActions({ connectionId, dbType, table, tables, exportTables, exportRows, exportSelectedRows, label = 'Export', mode = 'menu', buttonClassName = 'h-8 px-2', disabled = false, onDeleteTables, onMutateTables }: Props) {
+export function DataViewerTableActions({ connectionId, dbType, table, tables, exportTables, exportRows, exportSelectedRows, label = 'Export', mode = 'menu', buttonClassName = 'h-8 px-2', disabled = false, readOnlyReason = null, onDeleteTables, onMutateTables }: Props) {
   const tableName = table.table_name;
   const columns = useMemo<string[]>(() => (table.columns || []).map((col: any) => String(col.name || '')).filter(Boolean), [table]);
   const [dialog, setDialog] = useState<null | 'export' | 'clone' | 'truncate' | 'delete'>(null);
@@ -109,7 +110,7 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
   const [rowsOverride, setRowsOverride] = useState<RowData[] | null>(null);
   const targetTables = exportTables?.length ? exportTables : [table];
   const singleExport = targetTables.length === 1;
-  const supportsTableMutation = isMysql(dbType) || isPg(dbType);
+  const supportsTableMutation = !readOnlyReason && (isMysql(dbType) || isPg(dbType));
 
   const fetchRows = async (name: string): Promise<{ columns: string[]; rows: RowData[] }> => {
     let page = 1;
@@ -272,10 +273,10 @@ export function DataViewerTableActions({ connectionId, dbType, table, tables, ex
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-36">
             <DropdownMenuItem onClick={() => openExport()}><Download className="h-3.5 w-3.5" />Export</DropdownMenuItem>
-            <DropdownMenuItem disabled={!supportsTableMutation} onClick={() => { setCloneName(`${tableName}_copy`); setDialog('clone'); }}><Copy className="h-3.5 w-3.5" />Clone</DropdownMenuItem>
-            <DropdownMenuItem disabled={!supportsTableMutation} onClick={() => setDialog('truncate')}><Scissors className="h-3.5 w-3.5" />Truncate</DropdownMenuItem>
+            <DropdownMenuItem disabled={!supportsTableMutation} title={readOnlyReason ?? undefined} onClick={() => { setCloneName(`${tableName}_copy`); setDialog('clone'); }}><Copy className="h-3.5 w-3.5" />Clone</DropdownMenuItem>
+            <DropdownMenuItem disabled={!supportsTableMutation} title={readOnlyReason ?? undefined} onClick={() => setDialog('truncate')}><Scissors className="h-3.5 w-3.5" />Truncate</DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={!supportsTableMutation} variant="destructive" onClick={() => setDialog('delete')}><Trash2 className="h-3.5 w-3.5" />Delete</DropdownMenuItem>
+            <DropdownMenuItem disabled={!supportsTableMutation} title={readOnlyReason ?? undefined} variant="destructive" onClick={() => setDialog('delete')}><Trash2 className="h-3.5 w-3.5" />Delete</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
     </span>

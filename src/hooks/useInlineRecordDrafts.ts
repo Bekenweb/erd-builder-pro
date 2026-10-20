@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
-import { createColumnHelpers, submitValue } from '@/components/db-connect/data-viewer-utils';
+import { createColumnHelpers, draftValue, submitValue } from '@/components/db-connect/data-viewer-utils';
 
 type Draft = { rowKey: string; column: string; key: Record<string, any>; value: any };
 
@@ -19,7 +19,13 @@ export function useInlineRecordDrafts({ activeTable, columnHelpers, primaryKeyCo
     if (primaryKeyColumns.length === 0 || columnHelpers.isReadOnlyColumn(column)) return;
     const rowKey = JSON.stringify(primaryKeyColumns.map(col => row[col]));
     const key = Object.fromEntries(primaryKeyColumns.map(col => [col, row[col]]));
-    setDrafts(prev => ({ ...prev, [`${rowKey}:${column}`]: { rowKey, column, key, value } }));
+    const id = `${rowKey}:${column}`;
+    // Opening the editor (or typing back the original) is not a change: no draft, no leave warning, no NULL -> '' write.
+    if (value !== null && value === draftValue(column, row[column], columnHelpers)) {
+      setDrafts(prev => { if (!(id in prev)) return prev; const { [id]: _removed, ...rest } = prev; return rest; });
+      return;
+    }
+    setDrafts(prev => ({ ...prev, [id]: { rowKey, column, key, value } }));
   }, [columnHelpers, primaryKeyColumns]);
 
   const save = useCallback(async () => {

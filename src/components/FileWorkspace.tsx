@@ -193,7 +193,7 @@ export function FileWorkspace({ children, root, mainAI, teamState, discussionTar
   const selected = panes.find(file => paneKey(file) === focused) ?? current;
   const selectedDocument = sessions.current.get(paneKey(selected))?.workspace.activeDocument
     ?? (loaded && paneKey(selected) === paneKey(loaded) ? currentDocument : undefined);
-  return <FilePanesContext.Provider value={{ files: panes, focused, desktop, open, select, close }}>
+  return <FilePanesContext.Provider value={{ files: panes, focused, desktop, canSplit: Boolean(panes[0] ?? current), open, select, close }}>
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <ProjectFileTabs host currentView={selected.type} currentFile={selectedDocument} />
       {!panes.length ? <div className="flex min-h-0 flex-1 flex-col overflow-hidden" inert={busy}>{children}</div> : <div ref={host} className="flex min-h-0 flex-1 overflow-hidden" aria-label="Open files">

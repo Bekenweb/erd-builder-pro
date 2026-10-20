@@ -46,6 +46,7 @@ type DataViewerSidebarProps = {
   onRefreshTables: () => Promise<any> | any;
   onSelectTable: (tableName: string) => void;
   setTableSearch: (value: string) => void;
+  readOnlyReason?: string | null;
 };
 
 export function DataViewerSidebar({
@@ -65,6 +66,7 @@ export function DataViewerSidebar({
   onRefreshTables,
   onSelectTable,
   setTableSearch,
+  readOnlyReason = null,
 }: DataViewerSidebarProps) {
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -161,7 +163,7 @@ export function DataViewerSidebar({
             Tables
           </h3>
           <DropdownMenu>
-            <DropdownMenuTrigger render={<Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" />}>
+            <DropdownMenuTrigger title={readOnlyReason ?? undefined} disabled={Boolean(readOnlyReason)} render={<Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" />}>
               <Plus className="mr-1 h-3.5 w-3.5" />
               Create
               <ChevronDown className="ml-1 h-3 w-3" />
@@ -259,6 +261,7 @@ export function DataViewerSidebar({
                   dbType={dbType}
                   table={table}
                   tables={tables}
+                  readOnlyReason={readOnlyReason}
                   onDeleteTables={onDeleteTables}
                   onMutateTables={onMutateTables}
                 />
@@ -282,10 +285,12 @@ export function DataViewerSidebar({
             onDeleteTables={onDeleteTables}
             onMutateTables={onMutateTables}
           />
-          <Button type="button" variant="outline" className="h-8 min-w-0 flex-1 px-1.5 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={!supportsTableMutation || selectedTables.length === 0} onClick={() => setConfirmOpen(true)}>
-            <Trash2 className="mr-1 h-3.5 w-3.5" />
-            Delete All
-          </Button>
+          <span className="flex min-w-0 flex-1" title={readOnlyReason ?? undefined}>
+            <Button type="button" variant="outline" className="h-8 min-w-0 flex-1 px-1.5 text-[11px] text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={Boolean(readOnlyReason) || !supportsTableMutation || selectedTables.length === 0} onClick={() => setConfirmOpen(true)}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              Delete All
+            </Button>
+          </span>
         </ButtonGroup>
       </div>
       <Dialog open={importOpen} onOpenChange={open => !open && setImportOpen(false)}>

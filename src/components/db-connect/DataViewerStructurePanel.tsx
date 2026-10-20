@@ -24,6 +24,7 @@ type DataViewerStructurePanelProps = {
   draft: StructureDraft;
   isDirty: boolean;
   isSaving: boolean;
+  readOnlyReason?: string | null;
   tables: any[];
   dbType: string | null;
   referenceColumns: any[];
@@ -84,6 +85,7 @@ export function DataViewerStructurePanel({
   draft,
   isDirty,
   isSaving,
+  readOnlyReason = null,
   tables,
   dbType,
   referenceColumns,
@@ -367,26 +369,27 @@ export function DataViewerStructurePanel({
         </div>
 
         <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t bg-background p-3">
+          {readOnlyReason && <p className="col-span-2 text-xs text-muted-foreground">{readOnlyReason}</p>}
           {target.kind === 'column' && (
-            <Button variant="destructive" className="col-span-2" onClick={onDeleteColumn} disabled={isSaving}>
+            <Button variant="destructive" className="col-span-2" onClick={onDeleteColumn} disabled={Boolean(readOnlyReason) || isSaving}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete Column
             </Button>
           )}
           {target.kind === 'index' && (
-            <Button variant="destructive" className="col-span-2" onClick={onDeleteIndex} disabled={isSaving}>
+            <Button variant="destructive" className="col-span-2" onClick={onDeleteIndex} disabled={Boolean(readOnlyReason) || isSaving}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete Index
             </Button>
           )}
           {target.kind === 'check' && (
-            <Button variant="destructive" className="col-span-2" onClick={onDeleteCheck} disabled={isSaving}>
+            <Button variant="destructive" className="col-span-2" onClick={onDeleteCheck} disabled={Boolean(readOnlyReason) || isSaving}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete Check
             </Button>
           )}
           <Button variant="outline" onClick={onClose} disabled={isSaving}>Cancel</Button>
-          <Button onClick={onSave} disabled={!isDirty || isSaving}>
+          <Button onClick={onSave} disabled={Boolean(readOnlyReason) || !isDirty || isSaving}>
             Submit
           </Button>
         </div>

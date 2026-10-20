@@ -24,6 +24,7 @@ type DataViewerDetailsPanelProps = {
   onSubmitCreateRecord: () => void;
   onSubmitRecord: () => void;
   warnUnsaved: () => boolean;
+  readOnlyReason?: string | null;
 };
 
 export function DataViewerDetailsPanel({
@@ -46,6 +47,7 @@ export function DataViewerDetailsPanel({
   onSubmitCreateRecord,
   onSubmitRecord,
   warnUnsaved,
+  readOnlyReason = null,
 }: DataViewerDetailsPanelProps) {
   const editableRow = isCreatingRecord ? {} : selectedRow;
   return (
@@ -84,6 +86,7 @@ export function DataViewerDetailsPanel({
                 {primaryKeyColumns.length === 0 && (
                   <p className="text-xs text-muted-foreground">This table has no primary key, so record editing is disabled.</p>
                 )}
+                {readOnlyReason && <p className="text-xs text-muted-foreground">{readOnlyReason}</p>}
               </div>
               <div className="sticky bottom-0 grid grid-cols-2 gap-2 border-t bg-background p-3">
                 <Button
@@ -100,7 +103,7 @@ export function DataViewerDetailsPanel({
                 </Button>
                 <Button
                   onClick={isCreatingRecord ? onSubmitCreateRecord : onSubmitRecord}
-                  disabled={isSavingRecord || !isRecordDirty || (!isCreatingRecord && primaryKeyColumns.length === 0)}
+                  disabled={Boolean(readOnlyReason) || isSavingRecord || !isRecordDirty || (!isCreatingRecord && primaryKeyColumns.length === 0)}
                 >
                   Submit
                 </Button>

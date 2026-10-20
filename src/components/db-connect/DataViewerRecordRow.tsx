@@ -30,6 +30,8 @@ const csvCell = (value: any) => {
 };
 const sqlValue = (value: any) => value === null ? 'NULL' : typeof value === 'number' ? String(value) : `'${String(value).replace(/'/g, "''")}'`;
 const rowValues = (row: Record<string, any>, columns: string[]) => columns.map(column => row[column]);
+// Overlay at the cell edge so the action button never takes width from narrow (50 px default) columns.
+const CELL_ACTION_CLASS = 'absolute right-1 top-1/2 size-6 -translate-y-1/2 bg-background/90';
 
 type DataViewerRecordRowProps = {
   activeTable: string;
@@ -54,6 +56,7 @@ type DataViewerRecordRowProps = {
   onDraftCell: (row: Record<string, any>, column: string, value: any) => void;
   onToggleSelectedRow: (row: Record<string, any>, checked: boolean, event?: React.MouseEvent) => void;
   warnUnsaved: () => boolean;
+  readOnly?: boolean;
 };
 
 export const DataViewerRecordRow = memo(function DataViewerRecordRow({
@@ -79,6 +82,7 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
   onDraftCell,
   onToggleSelectedRow,
   warnUnsaved,
+  readOnly = false,
 }: DataViewerRecordRowProps) {
   const [editingColumn, setEditingColumn] = useState<string | null>(null);
   const [menuColumn, setMenuColumn] = useState<string | null>(null);
@@ -125,11 +129,12 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
         const displayValue = draft ? draft.value : val;
         const fk = foreignKeyByColumn.get(column) as any;
         const isEditing = editingColumn === column;
-        const editable = canSelectRows && !columnHelpers.isReadOnlyColumn(column);
+        const editable = canSelectRows && !readOnly && !columnHelpers.isReadOnlyColumn(column);
         return (
           <TableCell
             key={column}
-            className={`group overflow-hidden text-sm font-mono ${isEditing ? 'p-0.5' : ''} ${draft ? 'bg-primary/10 ring-1 ring-inset ring-primary/30' : ''}`}
+            data-column={column}
+            className={`group relative overflow-hidden text-sm font-mono ${isEditing ? 'p-0.5' : ''} ${draft ? 'bg-primary/10 ring-1 ring-inset ring-primary/30' : ''}`}
             onDoubleClick={e => {
               e.stopPropagation();
               if (!editable) return;
@@ -141,7 +146,7 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
               {isEditing ? (
                 <input
                   autoFocus
-                  value={displayValue ?? ''}
+                  value={draft ? draft.value ?? '' : draftValue(column, val, columnHelpers)}
                   onChange={e => onDraftCell(row, column, e.target.value)}
                   onClick={e => e.stopPropagation()}
                   onBlur={() => setEditingColumn(null)}
@@ -149,10 +154,10 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
                     if (e.key === 'Escape') setEditingColumn(null);
                     if (e.key === 'Enter') setEditingColumn(null);
                   }}
-                  className="h-7 min-w-40 flex-1 rounded border border-primary/50 bg-background px-1.5 font-mono text-sm outline-none"
+                  className="h-7 min-w-0 flex-1 rounded border border-primary/50 bg-background px-1.5 font-mono text-sm outline-none"
                 />
               ) : (
-                <span className="min-w-0 flex-1 truncate">
+                <span data-fit className="min-w-0 flex-1 truncate">
                   {displayValue === null ? (
                     <span className="text-muted-foreground/40 italic">NULL</span>
                   ) : typeof displayValue === 'object' ? (
@@ -178,7 +183,7 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
               )}
               {!isEditing && (menuColumn === column ? (
                 <DropdownMenu open onOpenChange={open => { if (!open) setMenuColumn(null); }}>
-                  <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" className="size-6 shrink-0" aria-label={`Actions for ${column}`} onClick={e => e.stopPropagation()} />}>
+                  <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-xs" className={CELL_ACTION_CLASS} aria-label={`Actions for ${column}`} onClick={e => e.stopPropagation()} />}>
                     <MoreHorizontal className="h-3.5 w-3.5" />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56" onClick={e => e.stopPropagation()}>
@@ -218,7 +223,7 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
+                  className={`${CELL_ACTION_CLASS} opacity-0 group-hover:opacity-100 focus-visible:opacity-100`}
                   aria-label={`Actions for ${column}`}
                   onClick={e => { e.stopPropagation(); setMenuColumn(column); }}
                 >
@@ -260,6 +265,7 @@ export const DataViewerRecordRow = memo(function DataViewerRecordRow({
     prev.rowKeyValue !== next.rowKeyValue ||
     prev.tableSchema !== next.tableSchema ||
     prev.canSelectRows !== next.canSelectRows ||
+    prev.readOnly !== next.readOnly ||
     prev.isActive !== next.isActive ||
     prev.isSelected !== next.isSelected ||
     prev.handleSelectRow !== next.handleSelectRow ||

@@ -27,6 +27,25 @@ describe("custom query helpers", () => {
     expect(() => normalizeSelectQuery("WITH changed AS (DELETE FROM users RETURNING id) SELECT * FROM changed")).toThrow("Only read-only SQL queries are allowed");
   });
 
+  it("accepts keywords and semicolons inside literals or comments but never hides real code", () => {
+    expect(normalizeSelectQuery("SELECT 'update; drop table x' AS note")).toBe("SELECT 'update; drop table x' AS note");
+    expect(normalizeSelectQuery('SELECT "delete" FROM t WHERE name = \'it\'\'s; ok\'')).toBe('SELECT "delete" FROM t WHERE name = \'it\'\'s; ok\'');
+    expect(normalizeSelectQuery("-- create report;\nSELECT 1 /* insert; */ FROM t; -- done;")).toBe("SELECT 1 /* insert; */ FROM t");
+    expect(normalizeSelectQuery("SELECT `drop` FROM t")).toBe("SELECT `drop` FROM t");
+    // Still rejected: real statements, ambiguous quoting falls back to the strict raw check.
+    expect(() => normalizeSelectQuery("SELECT 'a'; DROP TABLE t")).toThrow("Only one SQL statement");
+    expect(() => normalizeSelectQuery("SELECT E'a\\'', 1; SET SESSION CHARACTERISTICS AS TRANSACTION READ WRITE; SELECT ''")).toThrow();
+    expect(() => normalizeSelectQuery("SELECT 'path\\dir' AS p")).not.toThrow();
+    expect(() => normalizeSelectQuery("SELECT 'path\\dir; update' AS p")).toThrow();
+    expect(() => normalizeSelectQuery("SELECT 1 /*!50000 , (DELETE FROM t) */")).toThrow();
+    expect(() => normalizeSelectQuery("SELECT 1--1; DROP TABLE t")).toThrow("Only one SQL statement");
+    expect(() => normalizeSelectQuery("SELECT 1 # ; DROP TABLE t")).toThrow("Only one SQL statement");
+    expect(() => normalizeSelectQuery("SELECT 'unterminated; drop")).toThrow();
+    expect(() => normalizeSelectQuery("/* a /* b */ ; DROP TABLE t; */ SELECT 1")).toThrow();
+    expect(() => normalizeSelectQuery("-- SELECT\nDELETE FROM t")).toThrow("Only SELECT queries are allowed");
+    expect(buildLimitedSelectQuery("SELECT 1 -- trailing comment", 10).sql).toBe("SELECT * FROM (SELECT 1) AS erdbpro_limited_query LIMIT 11");
+  });
+
   it("bounds executable Note query results without trusting the requested limit", () => {
     expect(buildLimitedSelectQuery("SELECT * FROM users", 100)).toEqual({
       sql: "SELECT * FROM (SELECT * FROM users) AS erdbpro_limited_query LIMIT 101",

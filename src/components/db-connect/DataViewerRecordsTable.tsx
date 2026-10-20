@@ -1,4 +1,4 @@
-import { memo, ReactNode } from 'react';
+import { memo, ReactNode, useRef, useState } from 'react';
 import { AlertCircle, ArrowDown, ArrowUp, Database, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -33,9 +33,31 @@ type DataViewerRecordsTableProps = {
   onToggleSelectedRow: (row: Record<string, any>, checked: boolean, event?: React.MouseEvent) => void;
   toggleSort: (column: string) => void;
   warnUnsaved: () => boolean;
+  readOnlyReason?: string | null;
   headerAction?: ReactNode;
   children?: ReactNode;
 };
+
+const DEFAULT_COLUMN_WIDTH = 50;
+const MIN_COLUMN_WIDTH = 32;
+// shortcut: auto-fit caps very long values (JSON, text) so one column cannot span thousands of pixels; raise if users need wider.
+const MAX_FIT_WIDTH = 1000;
+const clampWidth = (width: number) => Math.max(MIN_COLUMN_WIDTH, Math.round(width));
+
+// Natural width of a column: the widest [data-fit] text (measured with a Range, so it can shrink as well as grow)
+// plus the rest of its cell (padding, sort icon, FK button), which stays fixed because [data-fit] takes the free space.
+function fitColumnWidth(table: HTMLTableElement | null, column: string) {
+  if (!table) return DEFAULT_COLUMN_WIDTH;
+  let width = MIN_COLUMN_WIDTH;
+  const range = document.createRange();
+  table.querySelectorAll<HTMLElement>(`[data-column="${CSS.escape(column)}"]`).forEach(cell => {
+    const fit = cell.querySelector<HTMLElement>('[data-fit]');
+    if (!fit) return;
+    range.selectNodeContents(fit);
+    width = Math.max(width, Math.ceil(range.getBoundingClientRect().width) + cell.clientWidth - fit.clientWidth);
+  });
+  return Math.min(MAX_FIT_WIDTH, clampWidth(width + 1));
+}
 
 function RefreshProgress({ active }: { active: boolean }) {
   return <div className="h-0.5 overflow-hidden bg-transparent">{active && <div className="h-full w-full animate-pulse bg-primary" />}</div>;
@@ -68,6 +90,7 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
   onToggleSelectedRow,
   toggleSort,
   warnUnsaved,
+  readOnlyReason = null,
   headerAction,
   children,
 }: DataViewerRecordsTableProps) {
@@ -76,6 +99,25 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
   const pageRows = records?.rows || [];
   const columns = records?.columns || [];
   const allPageRowsSelected = canSelectRows && pageRows.length > 0 && pageRows.every((row: any) => selectedRowKeys.has(rowKey(row)));
+  const tableRef = useRef<HTMLTableElement>(null);
+  const [widthsByTable, setWidthsByTable] = useState<Record<string, Record<string, number>>>({});
+  const widths = widthsByTable[activeTable] || {};
+  const widthOf = (column: string) => widths[column] ?? DEFAULT_COLUMN_WIDTH;
+  const setWidth = (column: string, width: number) => setWidthsByTable(prev => ({ ...prev, [activeTable]: { ...prev[activeTable], [column]: clampWidth(width) } }));
+  const startResize = (event: React.PointerEvent<HTMLDivElement>, column: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget;
+    const startX = event.clientX;
+    const startWidth = widthOf(column);
+    handle.setPointerCapture(event.pointerId);
+    const move = (moveEvent: PointerEvent) => setWidth(column, startWidth + moveEvent.clientX - startX);
+    const end = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', end); handle.removeEventListener('pointercancel', end); };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  };
+  const tableWidth = columns.reduce((total: number, column: string) => total + widthOf(column), canSelectRows ? 40 : 0);
   return (
     <div className="min-h-0 flex-1 overflow-hidden flex flex-col" data-db-client-records>
       {children}
@@ -117,14 +159,19 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
             </div>
             <div className="flex items-center gap-1">
               {headerAction}
-              <Button variant="outline" size="sm" className="h-8 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={selectedRowKeys.size === 0} onClick={onDeleteSelectedRecords}>
-                <Trash2 className="mr-1 h-3.5 w-3.5" />
-                Delete All
-              </Button>
-              <Button variant="outline" size="sm" className="h-8 px-2" onClick={onAddRecord}>
-                <Plus className="mr-1 h-3.5 w-3.5" />
-                Record
-              </Button>
+              {/* Disabled buttons ignore pointer events, so the wrapper carries the read-only reason tooltip. */}
+              <span className="flex" title={readOnlyReason ?? undefined}>
+                <Button variant="outline" size="sm" className="h-8 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive" disabled={Boolean(readOnlyReason) || selectedRowKeys.size === 0} onClick={onDeleteSelectedRecords}>
+                  <Trash2 className="mr-1 h-3.5 w-3.5" />
+                  Delete selected{selectedRowKeys.size > 0 ? ` (${selectedRowKeys.size})` : ''}
+                </Button>
+              </span>
+              <span className="flex" title={readOnlyReason ?? undefined}>
+                <Button variant="outline" size="sm" className="h-8 px-2" disabled={Boolean(readOnlyReason)} onClick={onAddRecord}>
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  Record
+                </Button>
+              </span>
             </div>
           </div>
           <RefreshProgress active={isLoadingRecords} />
@@ -133,10 +180,10 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
           >
             {records && (
               <div className="min-w-fit inline-block align-middle">
-              <table className="table-fixed caption-bottom text-sm" style={{ width: `max(100%, ${columns.length * 240 + (canSelectRows ? 40 : 0)}px)` }}>
+              <table ref={tableRef} className="table-fixed caption-bottom text-sm" style={{ width: tableWidth }}>
                 <colgroup>
-                  {canSelectRows && <col className="w-10" />}
-                  {columns.map((column: string) => <col key={column} className="w-60" />)}
+                  {canSelectRows && <col style={{ width: 40 }} />}
+                  {columns.map((column: string) => <col key={column} style={{ width: widthOf(column) }} />)}
                 </colgroup>
                 <TableHeader className="sticky top-0 z-20 bg-background">
                   <TableRow className="bg-background">
@@ -153,7 +200,8 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
                       <TableHead
                         key={column}
                         aria-sort={sort?.column === column ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
-                        className="sticky top-0 z-20 cursor-pointer select-none whitespace-nowrap bg-background px-4 py-0 hover:bg-muted/60"
+                        data-column={column}
+                        className="sticky top-0 z-20 cursor-pointer select-none overflow-hidden whitespace-nowrap bg-background px-2 py-0 hover:bg-muted/60"
                         onClick={() => warnUnsaved() && toggleSort(column)}
                         title={`Sort by ${column}`}
                       >
@@ -166,10 +214,10 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
                               if (warnUnsaved()) toggleSort(column);
                             }
                           }}
-                          className="flex h-10 items-center gap-1.5 font-mono text-xs font-medium"
+                          className="flex h-10 min-w-0 items-center gap-1.5 font-mono text-xs font-medium"
                         >
-                          <span>{column}</span>
-                          <span className="flex h-3 w-3 items-center justify-center">
+                          <span data-fit className="min-w-0 flex-1 truncate">{column}</span>
+                          <span className="flex h-3 w-3 shrink-0 items-center justify-center">
                             {sort?.column === column && (
                               sort.direction === 'asc'
                                 ? <ArrowUp className="h-3 w-3 text-primary" />
@@ -177,6 +225,24 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
                             )}
                           </span>
                         </div>
+                        {/* Excel-style border: drag to resize, double-click (or Enter) to fit the widest value. */}
+                        <div
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Resize column ${column}`}
+                          aria-valuenow={widthOf(column)}
+                          aria-valuemin={MIN_COLUMN_WIDTH}
+                          tabIndex={0}
+                          title="Drag to resize, double-click to fit"
+                          className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize touch-none border-r border-border hover:bg-primary/40 focus-visible:bg-primary/40 focus-visible:outline-none"
+                          onPointerDown={event => startResize(event, column)}
+                          onClick={event => event.stopPropagation()}
+                          onDoubleClick={event => { event.stopPropagation(); setWidth(column, fitColumnWidth(tableRef.current, column)); }}
+                          onKeyDown={event => {
+                            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); event.stopPropagation(); setWidth(column, widthOf(column) + (event.key === 'ArrowLeft' ? -10 : 10)); }
+                            if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); setWidth(column, fitColumnWidth(tableRef.current, column)); }
+                          }}
+                        />
                       </TableHead>
                     ))}
                   </TableRow>
@@ -216,6 +282,7 @@ export const DataViewerRecordsTable = memo(function DataViewerRecordsTable({
                           onDraftCell={onDraftCell}
                           onToggleSelectedRow={onToggleSelectedRow}
                           warnUnsaved={warnUnsaved}
+                          readOnly={Boolean(readOnlyReason)}
                         />
                       );
                     })
