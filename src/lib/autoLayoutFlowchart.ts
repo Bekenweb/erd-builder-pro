@@ -9,7 +9,6 @@ const COLUMN_PADDING = 64;
 const ROW_PADDING = 72;
 
 type Side = -1 | 0 | 1;
-type HandleSide = 'top' | 'bottom' | 'left' | 'right';
 
 export interface FlowchartLayoutResult {
   nodes: Node<FlowchartNodeData>[];
@@ -28,6 +27,10 @@ function isStartLike(node: Node<FlowchartNodeData>): boolean {
 function isEndLike(node: Node<FlowchartNodeData>): boolean {
   const label = normalizeLabel(node.data.label);
   return label.includes('end') || label.includes('finish') || label.includes('done') || label.includes('stop');
+}
+
+function isErrorLike(node: Node<FlowchartNodeData>): boolean {
+  return /error|gagal|tolak|reject|fail|invalid|hentikan|stop/i.test(node.data.label || '');
 }
 
 function isDecision(node: Node<FlowchartNodeData>): boolean {
@@ -77,56 +80,6 @@ function getNodeCenter(node: Node<FlowchartNodeData>): { x: number; y: number } 
   return {
     x: node.position.x + footprint.width / 2,
     y: node.position.y + footprint.height / 2,
-  };
-}
-
-function sideOpposite(side: HandleSide): HandleSide {
-  switch (side) {
-    case 'top':
-      return 'bottom';
-    case 'bottom':
-      return 'top';
-    case 'left':
-      return 'right';
-    case 'right':
-      return 'left';
-  }
-}
-
-function chooseDirectedSide(
-  source: Node<FlowchartNodeData>,
-  target: Node<FlowchartNodeData>,
-  edgeLabel?: string,
-): HandleSide {
-  const label = normalizeLabel(edgeLabel);
-
-  if (isDecision(source)) {
-    if (label === 'yes') return 'right';
-    if (label === 'no') return 'left';
-  }
-
-  const src = getNodeCenter(source);
-  const tgt = getNodeCenter(target);
-  const dx = tgt.x - src.x;
-  const dy = tgt.y - src.y;
-
-  if (Math.abs(dx) > Math.abs(dy) * 1.05) {
-    return dx >= 0 ? 'right' : 'left';
-  }
-
-  if (dy >= 0) return 'bottom';
-  return 'top';
-}
-
-function pickEdgeHandles(
-  source: Node<FlowchartNodeData>,
-  target: Node<FlowchartNodeData>,
-  edgeLabel?: string,
-): { sourceHandle: HandleSide; targetHandle: HandleSide } {
-  const sourceSide = chooseDirectedSide(source, target, edgeLabel);
-  return {
-    sourceHandle: sourceSide,
-    targetHandle: sideOpposite(sourceSide),
   };
 }
 
@@ -195,19 +148,6 @@ function searchFreeColumn(
   }
 
   return normalizedPreferred;
-}
-
-function getBranchOffsets(childCount: number): number[] {
-  const offsets: number[] = [];
-  for (let i = 0; i < childCount; i++) {
-    if (i === 0) offsets.push(1);
-    else if (i === 1) offsets.push(-1);
-    else {
-      const step = Math.ceil(i / 2);
-      offsets.push(i % 2 === 0 ? step + 1 : -(step + 1));
-    }
-  }
-  return offsets;
 }
 
 export function autoLayoutFlowchart(
@@ -339,27 +279,24 @@ export function autoLayoutFlowchart(
     const orderedChildren = sortChildren(node, children, edgeLabelLookup, nodeMap);
 
     if (isDecision(node)) {
-      const yesChild = orderedChildren.find(child => normalizeLabel(edgeLabelLookup.get(`${id}->${child}`)) === 'yes');
-      const noChild = orderedChildren.find(child => normalizeLabel(edgeLabelLookup.get(`${id}->${child}`)) === 'no');
-      const remainingChildren = orderedChildren.filter(child => child !== yesChild && child !== noChild);
+      const primaryChild = orderedChildren.find(child => normalizeLabel(edgeLabelLookup.get(`${id}->${child}`)) === 'yes')
+        ?? orderedChildren.find(child => !isErrorLike(nodeMap.get(child)!))
+        ?? orderedChildren[0];
 
-      if (yesChild) {
-        assignedSide.set(yesChild, 1);
-        assignSubtree(yesChild, col + 1, 1);
-      }
-      if (noChild) {
-        assignedSide.set(noChild, -1);
-        assignSubtree(noChild, col - 1, -1);
-      }
+      assignedSide.set(primaryChild, 0);
+      assignSubtree(primaryChild, col, 0);
 
-      const extras = remainingChildren;
-      const offsets = getBranchOffsets(extras.length);
-      extras.forEach((childId, index) => {
-        const offset = offsets[index];
-        const childSide: Side = offset > 0 ? 1 : offset < 0 ? -1 : 0;
+      let leftOffset = 1;
+      let rightOffset = 1;
+      for (const childId of orderedChildren) {
+        if (childId === primaryChild) continue;
+        const edgeLabel = normalizeLabel(edgeLabelLookup.get(`${id}->${childId}`));
+        const childNode = nodeMap.get(childId)!;
+        const childSide: Side = edgeLabel === 'no' || isErrorLike(childNode) ? -1 : 1;
+        const offset = childSide === -1 ? -leftOffset++ : rightOffset++;
         assignedSide.set(childId, childSide);
         assignSubtree(childId, col + offset, childSide);
-      });
+      }
       return;
     }
 
@@ -370,11 +307,14 @@ export function autoLayoutFlowchart(
       return;
     }
 
-    const offsets = getBranchOffsets(orderedChildren.length);
-    orderedChildren.forEach((childId, index) => {
-      const offset = offsets[index];
-      const childSide: Side = offset > 0 ? 1 : offset < 0 ? -1 : 0;
-      if (!assignedSide.has(childId)) assignedSide.set(childId, childSide);
+    const [primaryChild, ...sideChildren] = orderedChildren;
+    assignedSide.set(primaryChild, 0);
+    assignSubtree(primaryChild, col, 0);
+
+    sideChildren.forEach((childId, index) => {
+      const childSide: Side = index % 2 === 0 ? 1 : -1;
+      const offset = childSide * (Math.floor(index / 2) + 1);
+      assignedSide.set(childId, childSide);
       assignSubtree(childId, col + offset, childSide);
     });
   }
@@ -411,7 +351,7 @@ export function autoLayoutFlowchart(
   }
 
   for (const node of nodes) {
-    const parents = (incoming.get(node.id) || []).filter(src => assignedCol.has(src));
+    const parents = (incoming.get(node.id) || []).filter(src => assignedCol.has(src) && !backEdges.has(`${src}->${node.id}`));
     if (parents.length >= 2) {
       const parentCols = parents.map(id => assignedCol.get(id) || 0);
       const average = parentCols.reduce((sum, value) => sum + value, 0) / parentCols.length;
@@ -446,7 +386,7 @@ export function autoLayoutFlowchart(
     return {
       ...node,
       position: {
-        x: START_X + col * columnSpacing,
+        x: START_X + maxColumnFootprint / 2 + col * columnSpacing - footprint.width / 2,
         y: layerY.get(layer) ?? START_Y,
       },
       style: {
@@ -458,19 +398,26 @@ export function autoLayoutFlowchart(
   });
 
   const positionedNodeMap = new Map(positionedNodes.map(node => [node.id, node]));
+  const rightBoundary = Math.max(...positionedNodes.map(node => node.position.x + Number(node.style.width)));
 
-  const newEdges = edges.map((edge, index) => {
+  let returnLane = 0;
+  const newEdges = edges.filter(edge => positionedNodeMap.has(edge.source) && positionedNodeMap.has(edge.target)).map((edge, index) => {
     const source = positionedNodeMap.get(edge.source);
     const target = positionedNodeMap.get(edge.target);
     if (!source || !target) return edge;
 
-    const handles = pickEdgeHandles(source, target, edge.label ? String(edge.label) : '');
+    const isReturn = backEdges.has(`${edge.source}->${edge.target}`);
+    const handles = isReturn
+      ? { sourceHandle: 'right', targetHandle: 'right' }
+      : { sourceHandle: isDecision(source) && Math.abs(getNodeCenter(source).x - getNodeCenter(target).x) > 40
+          ? (getNodeCenter(target).x < getNodeCenter(source).x ? 'left' : 'right') : 'bottom', targetHandle: 'top' };
     return {
       ...edge,
       id: edge.id || `flowchart_edge_${index}`,
       sourceHandle: handles.sourceHandle,
       targetHandle: handles.targetHandle,
-      type: edge.type || 'smoothstep',
+      type: 'smoothstep',
+      pathOptions: { offset: isReturn ? rightBoundary - Math.max(source.position.x + Number(source.style.width), target.position.x + Number(target.style.width)) + 64 + returnLane++ * 24 : 20 },
       markerEnd: edge.markerEnd || { type: MarkerType.ArrowClosed, color: '#b1b1b7' },
     };
   });

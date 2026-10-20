@@ -1,4 +1,5 @@
 import { AIAction } from './types';
+import { DEFAULT_FLOWCHART_COLOR } from '@/components/flowchart/flowchartColors';
 
 const SHAPE_MEANINGS: Record<string, string> = {
   oval: 'Start/End',
@@ -43,7 +44,7 @@ function flowchartSymbolDetail(context: Record<string, any>): string {
     if (inStr) connParts.push(`← ${inStr}`);
     const connStr = connParts.length > 0 ? ` [${connParts.join('; ')}]` : ' [isolated]';
     const groupRef = d.groupId ? ` [id:${d.groupId}]` : '';
-    return `  [#${idx + 1}] "${d.label || 'unnamed'}" (${meaning}, color: ${d.color || '#8b5cf6'})${groupRef}${connStr}`;
+    return `  [#${idx + 1}] "${d.label || 'unnamed'}" (${meaning}, color: ${d.color || DEFAULT_FLOWCHART_COLOR})${groupRef}${connStr}`;
   }
 
   // Find all start nodes
@@ -141,7 +142,7 @@ Instruction:
 1. Respond with a JSON code block containing "nodes" and "edges".
 2. Multi-case support: You can create multiple independent process flows (each with its own Start and End) within the same file if the user describes multiple scenarios.
 3. Node shapes (use ONLY these exact values — do not use descriptions like "Start/End"): "oval", "rectangle", "diamond", "parallelogram", "database", "document", "cloud", "circle".
-4. Colors: Use hex codes from this palette — Emerald (#10b981) for start/end, Violet (#8b5cf6) for processes, Amber (#f59e0b) for decisions, Rose (#f43f5e) for errors, Sky (#0ea5e9) for I/O, Teal (#14b8a6) for data, Orange (#f97316) for external systems.
+4. Colors: Use the monochrome default by omitting the color field unless the user explicitly requests colors. If the user requests a color (for example red for errors), include its hex code in the relevant nodes' color field. Do not assign random or semantic colors without a user request. Preserve existing user-chosen colors when modifying existing symbols.
 5. For edges, use "sourceLabel" and "targetLabel" matching the node labels exactly. Do NOT use "from"/"to" or numeric ids.
 6. Use UNIQUE labels for every node — do not create two nodes with the same label. If duplicate labels are unavoidable, use "sourceIndex" and "targetIndex" (1‑based, matching the [#N] numbers from the existing symbols context) instead of "sourceLabel"/"targetLabel" to disambiguate.
 7. For diamond (decision) nodes, ALWAYS label the outgoing edges: "Yes" for the true/positive branch, "No" for the false/negative branch.
@@ -150,11 +151,11 @@ Example with decision branching:
 \`\`\`json
 {
   "nodes": [
-    { "label": "Start", "shape": "oval", "color": "#10b981" },
-    { "label": "Check Stock", "shape": "diamond", "color": "#f59e0b" },
-    { "label": "Process Payment", "shape": "rectangle", "color": "#8b5cf6" },
-    { "label": "Show Error", "shape": "rectangle", "color": "#f43f5e" },
-    { "label": "End", "shape": "oval", "color": "#10b981" }
+    { "label": "Start", "shape": "oval" },
+    { "label": "Check Stock", "shape": "diamond" },
+    { "label": "Process Payment", "shape": "rectangle" },
+    { "label": "Show Error", "shape": "rectangle" },
+    { "label": "End", "shape": "oval" }
   ],
   "edges": [
     { "sourceLabel": "Start", "targetLabel": "Check Stock" },
@@ -205,7 +206,7 @@ Instructions:
 2. Respond with a JSON code block containing:
    - "sourceLabel": the label of the existing node that comes BEFORE the insertion point
    - "targetLabel": the label of the existing node that comes AFTER the insertion point
-   - "newNode": object with "label", "shape", and "color" for the new symbol
+   - "newNode": object with "label" and "shape" for the new symbol. Omit "color" for the monochrome default, unless the user explicitly requests a color; then include the requested color as a hex code. Do not assign a random color.
    - "insertEdgeLabel1" (optional): label for the edge from source to new node
    - "insertEdgeLabel2" (optional): label for the edge from new node to target
    - Resolution priority (highest → lowest): "sourceGroupId"/"targetGroupId" → "sourceIndex"/"targetIndex" → "sourceLabel"/"targetLabel"
@@ -219,8 +220,7 @@ Example:
   "targetLabel": "Process Payment",
   "newNode": {
     "label": "Verify Inventory",
-    "shape": "rectangle",
-    "color": "#8b5cf6"
+    "shape": "rectangle"
   },
   "insertEdgeLabel1": "Available",
   "insertEdgeLabel2": "Proceed"
@@ -243,7 +243,7 @@ Instructions:
 1. Respond with a JSON code block containing "nodes" and "edges".
 2. Design the complete flowchart based on the user's description.
 3. Node shapes (use ONLY these exact values): "oval", "rectangle", "diamond", "parallelogram", "database", "document", "cloud", "circle".
-4. Colors: Use hex codes from this palette — Emerald (#10b981) for start/end, Violet (#8b5cf6) for processes, Amber (#f59e0b) for decisions, Rose (#f43f5e) for errors/paths, Sky (#0ea5e9) for I/O.
+4. Colors: Use the monochrome default by omitting the color field unless the user explicitly requests colors. If the user requests a color (for example red for errors), include its hex code in the relevant nodes' color field. Do not assign random or semantic colors without a user request. Preserve existing user-chosen colors when modifying existing symbols.
 5. For edges, use "sourceLabel" and "targetLabel" matching the node labels exactly.
 6. Use UNIQUE labels for every node — do not create two nodes with the same label. If duplicate labels are unavoidable, use "sourceIndex" and "targetIndex" (1‑based) instead of "sourceLabel"/"targetLabel" to disambiguate.
 7. For diamond (decision) nodes, ALWAYS label the outgoing edges: "Yes" for the true/positive branch, "No" for the false/negative branch.
@@ -253,11 +253,11 @@ Example:
 \`\`\`json
 {
   "nodes": [
-    { "label": "Start", "shape": "oval", "color": "#10b981" },
-    { "label": "Check Condition", "shape": "diamond", "color": "#f59e0b" },
-    { "label": "Do Action", "shape": "rectangle", "color": "#8b5cf6" },
-    { "label": "Skip", "shape": "rectangle", "color": "#f43f5e" },
-    { "label": "End", "shape": "oval", "color": "#10b981" }
+    { "label": "Start", "shape": "oval" },
+    { "label": "Check Condition", "shape": "diamond" },
+    { "label": "Do Action", "shape": "rectangle" },
+    { "label": "Skip", "shape": "rectangle" },
+    { "label": "End", "shape": "oval" }
   ],
   "edges": [
     { "sourceLabel": "Start", "targetLabel": "Check Condition" },

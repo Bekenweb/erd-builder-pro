@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { useProjectFiles } from './useProjectFiles';
 import { PENDING_FLOWCHART_EVENT, PENDING_FLOWCHART_TARGET } from '@/lib/pending-flowchart';
 import { FlowchartNodeData } from '@/components/FlowchartNode';
+import { FlowchartCanvasPreview, FlowchartComparison } from '@/components/flowchart/FlowchartCanvasPreview';
 
 export interface FlowchartFromJsonDialogProps {
   json: string;
@@ -77,19 +78,21 @@ export function FlowchartFromJsonDialog({
         try {
           const parsed = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
           const nodes: Node<FlowchartNodeData>[] = (parsed.nodes || []).map((n: any) => ({
+            ...n,
             id: n.id,
-            type: 'flowchartNode',
+            type: 'custom',
             position: n.position || { x: 0, y: 0 },
             data: n.data || n,
           }));
           const edges: Edge[] = (parsed.edges || []).map((e: any) => ({
+            ...e,
             id: e.id,
             source: e.source,
             target: e.target,
             sourceHandle: e.sourceHandle,
             targetHandle: e.targetHandle,
             label: e.label,
-            type: 'smoothstep',
+            type: e.type || 'smoothstep',
           }));
           setExistingData({ nodes, edges });
         } catch {
@@ -101,81 +104,7 @@ export function FlowchartFromJsonDialog({
     return () => { cancelled = true; };
   }, [updateUid, mode]);
 
-  // ── Compute diff for update mode (ERD-style comparison) ──
-  const diff = useMemo(() => {
-    if (!existingData || !newNodes.length || mode !== 'update') return null;
-
-    const existingByLabel = new Map<string, Node<FlowchartNodeData>>();
-    for (const node of existingData.nodes) {
-      existingByLabel.set((node.data.label || '').toLowerCase(), node);
-    }
-    const newByLabel = new Map<string, Node<FlowchartNodeData>>();
-    for (const node of newNodes) {
-      newByLabel.set((node.data.label || '').toLowerCase(), node);
-    }
-
-    type DiffRow = {
-      nodeName: string;
-      isNew: boolean;
-      isRemoved: boolean;
-      shapeOld?: string; shapeNew?: string; shapeChanged?: boolean;
-      colorOld?: string; colorNew?: string; colorChanged?: boolean;
-      labelOld?: string; labelNew?: string; labelChanged?: boolean;
-    };
-
-    const rows: DiffRow[] = [];
-
-    // New + modified nodes
-    for (const node of newNodes) {
-      const label = node.data.label || 'Untitled';
-      const existing = existingByLabel.get(label.toLowerCase());
-      if (!existing) {
-        rows.push({ nodeName: label, isNew: true, isRemoved: false });
-      } else {
-        const shapeChanged = existing.data.shape !== node.data.shape;
-        const colorChanged = existing.data.color !== node.data.color;
-        const labelChanged = (existing.data.label || '') !== label;
-        if (shapeChanged || colorChanged || labelChanged) {
-          rows.push({
-            nodeName: label,
-            isNew: false,
-            isRemoved: false,
-            shapeOld: existing.data.shape, shapeNew: node.data.shape, shapeChanged,
-            colorOld: existing.data.color, colorNew: node.data.color, colorChanged,
-            labelOld: existing.data.label || label, labelNew: label, labelChanged,
-          });
-        }
-      }
-    }
-
-    // Removed nodes
-    for (const node of existingData.nodes) {
-      const label = node.data.label || '';
-      if (!newByLabel.has(label.toLowerCase())) {
-        rows.push({ nodeName: label, isNew: false, isRemoved: true });
-      }
-    }
-
-    // Edge diff
-    const oldEdgeKeys = new Set(
-      existingData.edges.map(e => {
-        const src = existingData.nodes.find(n => n.id === e.source)?.data.label || e.source;
-        const tgt = existingData.nodes.find(n => n.id === e.target)?.data.label || e.target;
-        return `${src.toLowerCase()}→${tgt.toLowerCase()}`;
-      })
-    );
-    const newEdgeKeys = new Set(
-      newEdges.map(e => {
-        const src = newNodes.find(n => n.id === e.source)?.data.label || e.source;
-        const tgt = newNodes.find(n => n.id === e.target)?.data.label || e.target;
-        return `${src.toLowerCase()}→${tgt.toLowerCase()}`;
-      })
-    );
-    const addedEdges = [...newEdgeKeys].filter(k => !oldEdgeKeys.has(k));
-    const removedEdges = [...oldEdgeKeys].filter(k => !newEdgeKeys.has(k));
-
-    return { rows, addedEdges, removedEdges };
-  }, [existingData, newNodes, newEdges, mode]);
+  const incomingCanvas = useMemo(() => ({ nodes: newNodes, edges: newEdges }), [newNodes, newEdges]);
 
   // ── Create new flowchart ──
   const handleCreate = useCallback(async () => {
@@ -219,7 +148,7 @@ export function FlowchartFromJsonDialog({
   return (
     <Dialog open={true} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogOverlay />
-      <DialogContent size="md" showCloseButton>
+      <DialogContent size="4xl" showCloseButton>
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="size-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
@@ -286,35 +215,7 @@ export function FlowchartFromJsonDialog({
               </div>
             )}
 
-            {/* Preview: Create mode — show symbol cards */}
-            {hasNodes && mode === 'create' && (
-              <div className="space-y-1.5 pt-1">
-                <label className="text-[11px] font-medium text-muted-foreground">
-                  Symbols ({newNodes.length})
-                </label>
-                <div className="max-h-[300px] overflow-y-auto custom-scrollbar space-y-2">
-                  {newNodes.map((node: any) => (
-                    <div key={node.id} className="rounded-lg border border-border/40 bg-muted overflow-hidden">
-                      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/20 bg-muted/50">
-                        <GitBranch className="size-3 text-emerald-400 shrink-0" />
-                        <span className="text-[11px] font-semibold text-foreground">{node.data.label}</span>
-                        <span className="text-[9px] text-muted-foreground ml-auto">{node.data.shape}</span>
-                      </div>
-                      <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-mono">
-                        <span className="text-muted-foreground">Shape:</span>
-                        <span className="text-foreground/80">{node.data.shape}</span>
-                        {node.data.color && (
-                          <>
-                            <span className="text-muted-foreground ml-2">Color:</span>
-                            <span className="text-gray-300">{node.data.color}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            {hasNodes && mode === 'create' && <FlowchartCanvasPreview canvas={incomingCanvas} title="New flowchart" />}
 
             {/* Preview: Update mode — target selector + diff */}
             {mode === 'update' && (
@@ -355,136 +256,13 @@ export function FlowchartFromJsonDialog({
                   </div>
                 )}
 
-                {updateUid && !fetchingExisting && diff && (
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-medium text-muted-foreground">
-                      Comparison
-                      {diff.rows.filter(r => r.isRemoved).length > 0 && (
-                        <span className="ml-2 text-red-400/70 text-[10px]">
-                          ({diff.rows.filter(r => r.isRemoved).length} node{diff.rows.filter(r => r.isRemoved).length > 1 ? 's' : ''} removed)
-                        </span>
-                      )}
-                    </label>
-                    <div className="rounded-lg border border-border/40 overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar text-[10px] font-mono leading-relaxed">
-                      <div className="divide-y divide-border/10">
-                        {diff.rows.map((row, ri) => (
-                          <div key={ri}>
-                            {/* Node header */}
-                            <div className={`flex items-center gap-2 px-3 py-1.5 bg-muted border-b border-border/30 ${row.isRemoved ? 'bg-red-500/10' : ''}`}>
-                              {row.isNew && (
-                                <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shrink-0">NEW</span>
-                              )}
-                              {row.isRemoved && (
-                                <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-red-500/15 text-red-400 border border-red-500/30 shrink-0">DEL</span>
-                              )}
-                              <span className={`text-[11px] font-semibold ${row.isRemoved ? 'text-red-300/70 line-through' : 'text-foreground'}`}>{row.nodeName}</span>
-                            </div>
-                            {/* Property lines */}
-                            {row.isNew ? (
-                              <>
-                                <div className="flex items-center gap-1 px-3 py-[2px] bg-emerald-900/20">
-                                  <span className="w-4 shrink-0 select-none text-emerald-400">+</span>
-                                  <span className="w-16 shrink-0 text-emerald-400/60">shape</span>
-                                  <span className="text-emerald-300">{row.shapeNew || 'rectangle'}</span>
-                                </div>
-                                {row.colorNew && (
-                                  <div className="flex items-center gap-1 px-3 py-[2px] bg-emerald-900/20">
-                                    <span className="w-4 shrink-0 select-none text-emerald-400">+</span>
-                                    <span className="w-16 shrink-0 text-emerald-400/60">color</span>
-                                    <span className="text-emerald-300">{row.colorNew}</span>
-                                  </div>
-                                )}
-                              </>
-                            ) : row.isRemoved ? (
-                              <>
-                                <div className="flex items-center gap-1 px-3 py-[2px] bg-red-900/20">
-                                  <span className="w-4 shrink-0 select-none text-red-400">-</span>
-                                  <span className="w-16 shrink-0 text-red-400/60">shape</span>
-                                  <span className="text-red-400/70 line-through">{row.shapeOld || 'rectangle'}</span>
-                                </div>
-                                <div className="flex items-center gap-1 px-3 py-[2px] bg-red-900/20">
-                                  <span className="w-4 shrink-0 select-none text-red-400">-</span>
-                                  <span className="w-16 shrink-0 text-red-400/60">removed</span>
-                                  <span className="text-red-400/70 line-through">entire node</span>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                {row.shapeChanged ? (
-                                  <>
-                                    <div className="flex items-center gap-1 px-3 py-[2px] bg-red-900/20">
-                                      <span className="w-4 shrink-0 select-none text-red-400">-</span>
-                                      <span className="w-16 shrink-0 text-red-400/60">shape</span>
-                                      <span className="text-red-400/70 line-through">{row.shapeOld}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1 px-3 py-[2px] bg-emerald-900/20">
-                                      <span className="w-4 shrink-0 select-none text-emerald-400">+</span>
-                                      <span className="w-16 shrink-0 text-emerald-400/60">shape</span>
-                                      <span className="text-emerald-300">{row.shapeNew}</span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="flex items-center gap-1 px-3 py-[2px]">
-                                    <span className="w-4 shrink-0 select-none text-gray-600"> </span>
-                                    <span className="w-16 shrink-0 text-gray-500">shape</span>
-                                    <span className="text-gray-300">{row.shapeOld}</span>
-                                  </div>
-                                )}
-                                {row.colorChanged ? (
-                                  <>
-                                    <div className="flex items-center gap-1 px-3 py-[2px] bg-red-900/20">
-                                      <span className="w-4 shrink-0 select-none text-red-400">-</span>
-                                      <span className="w-16 shrink-0 text-red-400/60">color</span>
-                                      <span className="text-red-400/70 line-through">{row.colorOld}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1 px-3 py-[2px] bg-emerald-900/20">
-                                      <span className="w-4 shrink-0 select-none text-emerald-400">+</span>
-                                      <span className="w-16 shrink-0 text-emerald-400/60">color</span>
-                                      <span className="text-emerald-300">{row.colorNew}</span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="flex items-center gap-1 px-3 py-[2px]">
-                                    <span className="w-4 shrink-0 select-none text-gray-600"> </span>
-                                    <span className="w-16 shrink-0 text-gray-500">color</span>
-                                    <span className="text-gray-300">{row.colorOld}</span>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Edge diff */}
-                    {(diff.addedEdges.length > 0 || diff.removedEdges.length > 0) && (
-                      <div className="rounded-lg border border-border/40 overflow-hidden text-[10px] font-mono leading-relaxed">
-                        <div className="px-3 py-1.5 bg-muted border-b border-border/30">
-                          <span className="text-[11px] font-semibold text-foreground">Connections</span>
-                        </div>
-                        <div className="divide-y divide-border/10">
-                          {diff.addedEdges.map((e, i) => (
-                            <div key={`add-${i}`} className="flex items-center gap-1 px-3 py-[2px] bg-emerald-500/10">
-                              <span className="w-4 shrink-0 select-none text-emerald-400">+</span>
-                              <span className="text-emerald-600 dark:text-emerald-400">{e}</span>
-                            </div>
-                          ))}
-                          {diff.removedEdges.map((e, i) => (
-                            <div key={`rem-${i}`} className="flex items-center gap-1 px-3 py-[2px] bg-red-500/10">
-                              <span className="w-4 shrink-0 select-none text-red-400">-</span>
-                              <span className="text-red-400/70 line-through">{e}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {diff.rows.filter(r => r.isRemoved).length === 0 && diff.addedEdges.length === 0 && diff.removedEdges.length === 0 && diff.rows.every(r => !r.isNew) && (
-                      <p className="text-[9px] text-muted-foreground/50 leading-relaxed">No changes detected — all symbols are identical.</p>
-                    )}
+                {updateUid && !fetchingExisting && existingData && <>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <FlowchartCanvasPreview canvas={existingData} title="Current canvas" />
+                    <FlowchartCanvasPreview canvas={incomingCanvas} title="After applying AI" />
                   </div>
-                )}
+                  <FlowchartComparison before={existingData} after={incomingCanvas} />
+                </>}
               </div>
             )}
           </div>

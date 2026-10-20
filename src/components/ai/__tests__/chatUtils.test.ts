@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { extractDBML, extractFlowchartJSON, extractSchemaContent, hasDBMLContent, hasFlowchartJSON, replyPaneTarget } from '../chatUtils';
 import { applyToErdContent } from '../actions/erdActions';
 import { previewFlowchartContent } from '../actions/flowchartActions';
+import { DEFAULT_FLOWCHART_COLOR } from '@/components/flowchart/flowchartColors';
 
 const dbml = `Table users {
   id bigint [pk]
@@ -95,6 +96,7 @@ ${flowchartJson}
     expect(byLabel.get('Kirim OTP')).toBe('rectangle');
     expect(byLabel.get('Login Berhasil')).toBe('oval');
     expect(result?.edges).toHaveLength(3);
+    expect(result?.nodes.every(node => node.data.color === DEFAULT_FLOWCHART_COLOR)).toBe(true);
   });
 });
 

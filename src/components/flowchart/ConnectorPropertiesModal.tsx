@@ -60,6 +60,7 @@ export function ConnectorPropertiesModal({
               onClick={onDeleteEdge}
               className="text-destructive hover:bg-destructive/10 -mr-2 shadow-none"
               title="Delete Connector"
+              aria-label="Delete Connector"
             >
               <Trash2 className="w-4 h-4" />
             </Button>

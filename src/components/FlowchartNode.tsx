@@ -3,6 +3,7 @@ import { Handle, Position, NodeResizer } from '@xyflow/react';
 import { MessageSquare } from 'lucide-react';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { CommentMarker, OPEN_COMMENT_EVENT } from '@/components/diagram/ERDComments';
+import { DEFAULT_FLOWCHART_COLOR } from './flowchart/flowchartColors';
 
 export type FlowchartShape = 'rectangle' | 'oval' | 'diamond' | 'parallelogram' | 'database' | 'document' | 'cloud' | 'circle';
 
@@ -20,8 +21,11 @@ export interface FlowchartNodeData extends Record<string, unknown> {
 
 const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: string, selected?: boolean }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const displayColor = !data.color || data.color === DEFAULT_FLOWCHART_COLOR
+    ? 'var(--flowchart-node-border)'
+    : data.color;
   
-  const handleClasses = "!w-1.5 !h-1.5 !bg-white !border-none opacity-0 group-hover:opacity-100 transition-opacity z-20 cursor-crosshair";
+  const handleClasses = "!w-1.5 !h-1.5 !bg-[var(--flowchart-node-handle)] !border-none opacity-0 group-hover:opacity-100 transition-opacity z-20 cursor-crosshair";
 
   // Different padding/width based on shape to ensure text doesn't overflow
   const containerClasses = useMemo(() => {
@@ -56,21 +60,21 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
 
   const shapeBackground = useMemo(() => {
     const baseStyle: React.CSSProperties = {
-      background: `linear-gradient(135deg, ${data.color}40 0%, ${data.color}10 100%)`,
-      borderColor: data.color,
-      borderWidth: '2px',
+      background: 'var(--flowchart-node-fill)',
+      borderColor: displayColor,
+      borderWidth: '1.5px',
       borderStyle: 'solid',
       boxShadow: 'none',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+      transition: 'border-color 150ms ease, background-color 150ms ease',
     };
 
-    const svgFill = `${data.color}20`;
-    const svgStroke = data.color;
-    const svgStrokeWidth = '2';
+    const svgFill = 'var(--flowchart-node-fill)';
+    const svgStroke = displayColor;
+    const svgStrokeWidth = '1.5';
 
     const pathStyle: React.CSSProperties = {
       filter: 'none',
-      transition: 'all 0.3s',
+      transition: 'stroke 150ms ease, fill 150ms ease',
     };
 
     switch (data.shape) {
@@ -108,10 +112,7 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
         return (
           <div 
             className="absolute inset-0 rounded-full pointer-events-none flex items-center justify-center" 
-            style={{ 
-              ...baseStyle,
-              background: `radial-gradient(circle at 30% 30%, ${data.color}40 0%, ${data.color}10 100%)`
-            }} 
+            style={baseStyle}
           />
         );
       case 'database':
@@ -128,7 +129,7 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
             />
             <path 
               d="M2,15 C2,5 98,5 98,15 C98,25 2,25 2,15 Z" 
-              fill={`${data.color}35`} 
+              fill="var(--flowchart-node-fill-muted)"
               stroke={svgStroke} 
               strokeWidth={svgStrokeWidth} 
               vectorEffect="non-scaling-stroke"
@@ -170,11 +171,11 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
       default:
         return <div className="absolute inset-0 rounded-md pointer-events-none" style={baseStyle} />;
     }
-  }, [data.color, data.shape, selected]);
+  }, [data.shape, displayColor]);
 
   const content = (
     <div 
-      className={`relative group flex items-center justify-center cursor-pointer transition-all duration-300 hover:scale-[1.02] ${containerClasses}`}
+      className={`relative group flex h-full w-full items-center justify-center cursor-pointer ${containerClasses}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={{ aspectRatio: data.shape === 'circle' ? '1 / 1' : 'auto' }}
@@ -188,11 +189,11 @@ const FlowchartNode = ({ data, id, selected }: { data: FlowchartNodeData, id: st
           width: 8, 
           height: 8, 
           borderRadius: 0, 
-          backgroundColor: '#0f0f14', 
-          border: `1.5px solid ${data.color}`,
+          backgroundColor: 'var(--flowchart-node-handle)',
+          border: `1.5px solid ${displayColor}`,
           zIndex: 50
         }}
-        lineStyle={{ border: `1px dashed ${data.color}80` }}
+        lineStyle={{ border: `1px dashed ${displayColor}` }}
       />
       
       {/* Background Shape */}

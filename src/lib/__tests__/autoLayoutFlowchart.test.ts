@@ -93,7 +93,7 @@ describe('autoLayoutFlowchart', () => {
     expect(result.edges[0].targetHandle).toBeDefined();
   });
 
-  it('places Yes branch to the right of diamond and No to the left', () => {
+  it('keeps the Yes branch below a decision and places No to the left', () => {
     const nodes = [
       makeNode('n1', 'Start', 'oval'),
       makeNode('n2', 'Decision', 'diamond'),
@@ -114,8 +114,7 @@ describe('autoLayoutFlowchart', () => {
     const noNode = result.nodes.find(n => n.id === 'n4')!;
     const decisionNode = result.nodes.find(n => n.id === 'n2')!;
 
-    // Yes goes right (higher x), No goes left (lower x)
-    expect(yesNode.position.x).toBeGreaterThan(decisionNode.position.x);
+    expect(yesNode.position.x + Number(yesNode.style!.width) / 2).toBe(decisionNode.position.x + Number(decisionNode.style!.width) / 2);
     expect(noNode.position.x).toBeLessThan(decisionNode.position.x);
   });
 
@@ -195,7 +194,36 @@ describe('autoLayoutFlowchart', () => {
     const result = autoLayoutFlowchart(nodes, edges);
     const checkNode = result.nodes.find(n => n.id === 'n2')!;
     const proceedNode = result.nodes.find(n => n.id === 'n3')!;
-    expect(proceedNode.position.x).toBeGreaterThan(checkNode.position.x);
+    expect(proceedNode.position.x + Number(proceedNode.style!.width) / 2).toBe(checkNode.position.x + Number(checkNode.style!.width) / 2);
+  });
+
+  it('keeps the successful workflow in one vertical column', () => {
+    const nodes = [
+      makeNode('start', 'Start', 'oval'),
+      makeNode('signature', 'Signature valid?', 'diamond'),
+      makeNode('validate', 'Validate payload'),
+      makeNode('rejected', 'Reject request and log failure', 'document'),
+      makeNode('payload', 'Payload valid?', 'diamond'),
+      makeNode('transform', 'Transform payload'),
+      makeNode('invalid', 'Log validation error and stop', 'document'),
+    ];
+    const edges = [
+      makeEdge('start', 'signature'),
+      makeEdge('signature', 'validate', 'Yes'),
+      makeEdge('signature', 'rejected', 'No'),
+      makeEdge('validate', 'payload'),
+      makeEdge('payload', 'transform', 'Yes'),
+      makeEdge('payload', 'invalid', 'No'),
+    ];
+
+    const result = autoLayoutFlowchart(nodes, edges);
+    const byId = new Map(result.nodes.map(node => [node.id, node]));
+    const mainColumn = ['start', 'signature', 'validate', 'payload', 'transform'];
+
+    const center = (id: string) => byId.get(id)!.position.x + Number(byId.get(id)!.style!.width) / 2;
+    for (const id of mainColumn) expect(center(id)).toBe(center('start'));
+    expect(byId.get('rejected')!.position.x).toBeLessThan(byId.get('signature')!.position.x);
+    expect(byId.get('invalid')!.position.x).toBeLessThan(byId.get('payload')!.position.x);
   });
 
   it('does not crash with 50+ nodes', () => {
@@ -214,6 +242,33 @@ describe('autoLayoutFlowchart', () => {
     for (const node of result.nodes) {
       expect(Number.isFinite(node.position.x)).toBe(true);
       expect(Number.isFinite(node.position.y)).toBe(true);
+    }
+  });
+
+  it('keeps retry edges outside the main lane without moving their destination', () => {
+    const result = autoLayoutFlowchart([
+      makeNode('send', 'Kirim ke API tujuan'),
+      makeNode('check', 'Pengiriman berhasil?', 'diamond'),
+      makeNode('success', 'Catat hasil sukses'),
+      makeNode('retry-check', 'Retry tersedia?', 'diamond'),
+      makeNode('retry', 'Jalankan retry'),
+      makeNode('failed', 'Catat kegagalan akhir'),
+    ], [
+      makeEdge('send', 'check'), makeEdge('check', 'success', 'Yes'),
+      makeEdge('check', 'retry-check', 'No'), makeEdge('retry-check', 'retry', 'Yes'),
+      makeEdge('retry-check', 'failed', 'No'), makeEdge('retry', 'send'),
+    ]);
+    const byId = new Map(result.nodes.map(node => [node.id, node]));
+    const center = (id: string) => byId.get(id)!.position.x + Number(byId.get(id)!.style!.width) / 2;
+    expect(center('send')).toBe(center('check'));
+    expect(center('send')).toBe(center('success'));
+    const loop = result.edges.find(edge => edge.source === 'retry' && edge.target === 'send')!;
+    expect(loop).toMatchObject({ sourceHandle: 'right', targetHandle: 'right', type: 'smoothstep' });
+    for (const edge of result.edges.filter(edge => edge !== loop)) expect(edge.targetHandle).toBe('top');
+    for (let i = 0; i < result.nodes.length; i++) for (let j = i + 1; j < result.nodes.length; j++) {
+      const a = result.nodes[i], b = result.nodes[j];
+      expect(a.position.x + Number(a.style!.width) <= b.position.x || b.position.x + Number(b.style!.width) <= a.position.x ||
+        a.position.y + Number(a.style!.height) <= b.position.y || b.position.y + Number(b.style!.height) <= a.position.y).toBe(true);
     }
   });
 });
