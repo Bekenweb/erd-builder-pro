@@ -1,5 +1,6 @@
 import { Node, Edge } from '@xyflow/react';
 import { FlowchartNodeData } from '../components/FlowchartNode';
+import { DEFAULT_FLOWCHART_COLOR } from '../components/flowchart/flowchartColors';
 export { downloadSVG } from './downloadSVG';
 
 export const NODE_W = 160;
@@ -128,7 +129,7 @@ export function generateFlowchartSVG(nodes: Node<FlowchartNodeData>[], edges: Ed
     </g>`;
   }).join('\n');
 
-  const usedColors = [...new Set(nodes.map(n => n.data.color || '#8b5cf6'))];
+  const usedColors = [...new Set(nodes.map(n => n.data.color || DEFAULT_FLOWCHART_COLOR))];
 
   const gradientDefs = usedColors.map(color => {
     const id = color.replace('#', '');
@@ -141,7 +142,7 @@ export function generateFlowchartSVG(nodes: Node<FlowchartNodeData>[], edges: Ed
   const nodeSvgs = nodes.map(node => {
     const sx = node.position.x;
     const sy = node.position.y;
-    const color = node.data.color || '#8b5cf6';
+    const color = node.data.color || DEFAULT_FLOWCHART_COLOR;
     const shape = node.data.shape || 'rectangle';
     const gradId = color.replace('#', '');
 

@@ -21,6 +21,7 @@ import {
 import { Trash2 } from 'lucide-react';
 import { FlowchartNodeData, FlowchartShape } from '../FlowchartNode';
 import { COLOR_PALETTE, SHAPE_LABELS } from './flowchartConstants';
+import { FlowchartShapeIcon } from './FlowchartShapeIcon';
 
 interface SymbolPropertiesModalProps {
   selectedNodeId: string | null;
@@ -62,7 +63,7 @@ export function SymbolPropertiesModal({
 
   return (
     <Dialog open={!!selectedNodeId} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Symbol Properties</DialogTitle>
           <DialogDescription>
@@ -128,14 +129,9 @@ export function SymbolPropertiesModal({
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent className="bg-popover border-border text-popover-foreground">
-                  <SelectItem value="rectangle">Rectangle (Process)</SelectItem>
-                  <SelectItem value="oval">Oval (Start/End)</SelectItem>
-                  <SelectItem value="diamond">Diamond (Decision)</SelectItem>
-                  <SelectItem value="parallelogram">Parallelogram (Input/Output)</SelectItem>
-                  <SelectItem value="database">Cylinder (Database)</SelectItem>
-                  <SelectItem value="document">Document</SelectItem>
-                  <SelectItem value="cloud">Cloud (External System)</SelectItem>
-                  <SelectItem value="circle">Circle (Connector)</SelectItem>
+                  {(Object.entries(SHAPE_LABELS) as [FlowchartShape, string][]).map(([shape, label]) => (
+                    <SelectItem key={shape} value={shape}><FlowchartShapeIcon shape={shape} />{label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -146,9 +142,10 @@ export function SymbolPropertiesModal({
                 {COLOR_PALETTE.map((color) => (
                   <button
                     key={color}
-                    className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${selectedNode.data.color === color ? 'border-white scale-110' : 'border-transparent'}`}
+                    className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 ${selectedNode.data.color === color ? 'border-ring scale-110' : 'border-transparent'}`}
                     style={{ backgroundColor: color }}
                     onClick={() => onUpdateNodeData({ color })}
+                    aria-label={`Set symbol color to ${color}`}
                   />
                 ))}
               </div>

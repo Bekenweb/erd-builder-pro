@@ -1,0 +1,1 @@
+export const DEFAULT_FLOWCHART_COLOR = '#6b7280';

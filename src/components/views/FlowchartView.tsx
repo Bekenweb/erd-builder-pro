@@ -18,7 +18,9 @@ import {
 import '@xyflow/react/dist/style.css';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Loader2, Undo2, Redo2, Move, LayoutGrid } from 'lucide-react';
+import { Plus, Loader2, Undo2, Redo2, Move, LayoutGrid, Eraser } from 'lucide-react';
+import ConfirmModal from '@/components/ConfirmModal';
+import { normalizeFlowchartCanvas } from '@/lib/flowchart-canvas';
 import {
   Select,
   SelectContent,
@@ -29,6 +31,7 @@ import {
 
 import FlowchartNode, { FlowchartNodeData } from '../FlowchartNode';
 import { initialNodes, initialEdges } from '../flowchart/flowchartConstants';
+import { DEFAULT_FLOWCHART_COLOR } from '../flowchart/flowchartColors';
 import { Flowchart } from '@/types';
 import { AddSymbolModal } from '../flowchart/AddSymbolModal';
 import { SymbolPropertiesModal } from '../flowchart/SymbolPropertiesModal';
@@ -36,7 +39,7 @@ import { ConnectorPropertiesModal } from '../flowchart/ConnectorPropertiesModal'
 import { JumpToNode } from '../JumpToNode';
 import { useAIAction } from '@/contexts/AIActionContext';
 import { toast } from 'sonner';
-import { applyToFlowchartContent, previewFlowchartContent, applyInsertBetween, applyReplaceAll, clearParseCache, FlowchartApplyResult } from '@/components/ai/actions/flowchartActions';
+import { previewFlowchartContent, applyInsertBetween, clearParseCache, FlowchartApplyResult } from '@/components/ai/actions/flowchartActions';
 import { FlowchartPreviewModal } from '@/components/flowchart/FlowchartPreviewModal';
 import { FlowchartExportModal } from '@/components/flowchart/FlowchartExportModal';
 import { useUndoRedo } from '@/hooks/useUndoRedo';
@@ -46,6 +49,8 @@ import { useWorkspace } from '@/providers/WorkspaceContext';
 import type { FlowchartExportHandler } from '@/providers/WorkspaceContext';
 import { PrepareCommentAnchor, type CommentAnchor } from '@/components/diagram/ERDComments';
 import { storedHasAnchor } from '@/lib/fileComments';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 
 const nodeTypes = {
   custom: FlowchartNode,
@@ -78,6 +83,7 @@ export const FlowchartView = React.memo(({
   // ── Hooks FIRST (before any conditional return — Rule of Hooks) ──
   const { registerContentHandler, setActionContextData } = useAIAction();
   const editorActive = useEditorActive();
+  const isMobile = useIsMobile();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowchartNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -86,12 +92,13 @@ export const FlowchartView = React.memo(({
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [viewport, setViewport] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [isAddingNode, setIsAddingNode] = useState(false);
+  const [isClearingCanvas, setIsClearingCanvas] = useState(false);
   const [pendingPreview, setPendingPreview] = useState<FlowchartApplyResult | null>(null);
   const [exportPreview, setExportPreview] = useState<{ nodes: Node<FlowchartNodeData>[]; edges: Edge[]; filename: string } | null>(null);
   const [newNodeData, setNewNodeData] = useState<FlowchartNodeData>({
     label: 'New Symbol',
     shape: 'rectangle',
-    color: '#8b5cf6',
+    color: DEFAULT_FLOWCHART_COLOR,
   });
   const initialLoadRef = React.useRef(true);
   const isParsingFromDataRef = React.useRef(false);
@@ -113,7 +120,20 @@ export const FlowchartView = React.memo(({
     takeSnapshot(nodesRef.current, edgesRef.current);
     setNodes(repositions.nodes);
     setEdges(repositions.edges);
-  }, [nodes, edges, setNodes, setEdges, takeSnapshot]);
+    requestAnimationFrame(() => requestAnimationFrame(() => fitView({ padding: 0.15 })));
+  }, [nodes, edges, setNodes, setEdges, takeSnapshot, fitView]);
+  const handleUndo = useCallback(() => {
+    const previous = undo(nodesRef.current, edgesRef.current);
+    if (!previous) return;
+    setNodes(previous.nodes);
+    setEdges(previous.edges);
+  }, [undo, setNodes, setEdges]);
+  const handleRedo = useCallback(() => {
+    const next = redo(nodesRef.current, edgesRef.current);
+    if (!next) return;
+    setNodes(next.nodes);
+    setEdges(next.edges);
+  }, [redo, setNodes, setEdges]);
   nodesRef.current = nodes;
   edgesRef.current = edges;
 
@@ -135,17 +155,23 @@ export const FlowchartView = React.memo(({
   // Depend on activeFlowchain.data instead of just id,
   // because data arrives async after selectFlowchart completes
   useEffect(() => {
+    if (activeFlowchart.data === JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current })) {
+      initialLoadRef.current = false;
+      isParsingFromDataRef.current = false;
+      return;
+    }
     isParsingFromDataRef.current = true;
     initialLoadRef.current = true;
     try {
       const parsed = parseFlowchartData(activeFlowchart.data) || { nodes: [], edges: [] };
       const hasPending = localStorage.getItem('pending_create_flowchart_json') || localStorage.getItem('pending_update_flowchart_json');
-      const nodesData = (parsed.nodes && parsed.nodes.length > 0) ? parsed.nodes : (hasPending || pendingContentAppliedRef.current ? [] : initialNodes);
-      const edgesData = (parsed.edges && parsed.edges.length > 0) ? parsed.edges : (hasPending || pendingContentAppliedRef.current ? [] : initialEdges);
+      const nodesData = Array.isArray(parsed.nodes) ? parsed.nodes : (hasPending || pendingContentAppliedRef.current ? [] : initialNodes);
+      const edgesData = Array.isArray(parsed.edges) ? parsed.edges : (hasPending || pendingContentAppliedRef.current ? [] : initialEdges);
       
       if (!pendingContentAppliedRef.current) {
-        setNodes(nodesData);
-        setEdges(edgesData);
+        const canvas = normalizeFlowchartCanvas(nodesData, edgesData);
+        setNodes(canvas.nodes);
+        setEdges(canvas.edges);
       }
 
       // Only reset selection when switching to a different flowchart, not on data refresh (auto-save cycle)
@@ -170,7 +196,7 @@ export const FlowchartView = React.memo(({
     const timer = setTimeout(() => {
       isParsingFromDataRef.current = false;
       initialLoadRef.current = false;
-    }, 2000);
+    }, 0);
     return () => {
       clearTimeout(timer);
       isParsingFromDataRef.current = false;
@@ -187,14 +213,13 @@ export const FlowchartView = React.memo(({
     if (initialLoadRef.current || isParsingFromDataRef.current || isDraggingRef.current || isEditingEdgeRef.current || isEditingNodeRef.current) {
       return;
     }
-    if (nodes.length > 0 || edges.length > 0) {
-      handleFlowchartChangeRef.current(nodes, edges);
-    }
+    handleFlowchartChangeRef.current(nodes, edges);
   }, [nodes, edges]);
 
   const onNodeDragStart = useCallback(() => {
     isDraggingRef.current = true;
-  }, []);
+    takeSnapshot(nodesRef.current, edgesRef.current);
+  }, [takeSnapshot]);
 
   const onNodeDragStop = useCallback(() => {
     isDraggingRef.current = false;
@@ -337,8 +362,21 @@ export const FlowchartView = React.memo(({
   const deleteEdge = () => {
     if (!selectedEdgeId) return;
     takeSnapshot(nodesRef.current, edgesRef.current);
-    setEdges((eds) => eds.filter(e => e.id !== selectedEdgeId));
+    const nextEdges = edgesRef.current.filter(e => e.id !== selectedEdgeId);
+    setEdges(nextEdges);
+    handleFlowchartChangeRef.current(nodesRef.current, nextEdges);
     setSelectedEdgeId(null);
+  };
+
+  const clearCanvas = () => {
+    takeSnapshot(nodesRef.current, edgesRef.current);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setSelectedGroup(null);
+    setNodes([]);
+    setEdges([]);
+    handleFlowchartChangeRef.current([], []);
+    setIsClearingCanvas(false);
   };
 
   // Track modal editing state to prevent auto-save while a property dialog is open
@@ -355,9 +393,7 @@ export const FlowchartView = React.memo(({
     prevSelectedNodeIdRef.current = selectedNodeId;
 
     if ((edgeClosed || nodeClosed) && !initialLoadRef.current && !isParsingFromDataRef.current) {
-      if (nodes.length > 0 || edges.length > 0) {
-        handleFlowchartChangeRef.current(nodes, edges);
-      }
+      handleFlowchartChangeRef.current(nodes, edges);
     }
   }, [selectedEdgeId, selectedNodeId]); // Intentionally omit nodes/edges — closure captures latest values on modal close
 
@@ -712,62 +748,18 @@ export const FlowchartView = React.memo(({
     return () => window.removeEventListener(PENDING_FLOWCHART_EVENT, consumePending);
   }, [companionMode, setNodes, setEdges, takeSnapshot, handleFlowchartChange, saveFlowchart, activeFlowchart, triggerDebouncedSync, fitView]);
 
-  const handleConfirmAppend = useCallback((replaceGroupSection?: string) => {
-    const content = pendingContentRef.current;
-    if (!content) return;
-
+  const handleConfirmAppend = useCallback((result: FlowchartApplyResult) => {
     takeSnapshot(nodesRef.current, edgesRef.current);
-
-    if (replaceGroupSection) {
-      // Replace only the specified group
-      const startIds = nodesRef.current.filter(n => n.data.section === replaceGroupSection).map(n => n.id);
-      const connectedIds = new Set<string>(startIds);
-      const queue = [...startIds];
-      while (queue.length > 0) {
-        const currentId = queue.shift()!;
-        for (const edge of edgesRef.current) {
-          if (edge.source === currentId && !connectedIds.has(edge.target)) {
-            connectedIds.add(edge.target);
-            queue.push(edge.target);
-          }
-        }
-      }
-      const idsToRemove = [...connectedIds];
-      setNodes((nds) => {
-        const kept = nds.filter(n => !idsToRemove.includes(n.id));
-        const parsed = applyReplaceAll(content);
-        if (parsed) return [...kept, ...parsed.nodes];
-        return nds;
-      });
-      setEdges((eds) => {
-        const kept = eds.filter(e => !idsToRemove.includes(e.source) && !idsToRemove.includes(e.target));
-        const parsed = applyReplaceAll(content);
-        if (parsed) return [...kept, ...parsed.edges];
-        return eds;
-      });
-    } else if (pendingApplyModeRef.current === 'replace') {
-      const result = applyReplaceAll(content);
-      if (result) {
-        setNodes(result.nodes);
-        setEdges(result.edges);
-      }
-    } else if (pendingApplyModeRef.current === 'insert') {
-      const result = applyInsertBetween(nodesRef.current, edgesRef.current, content);
-      if (result) {
-        setNodes(result.nodes);
-        setEdges(result.edges);
-      }
-    } else {
-      const result = applyToFlowchartContent(nodesRef.current, edgesRef.current, content);
-      if (result) {
-        setNodes(result.nodes);
-        setEdges(result.edges);
-      }
-    }
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setNodes(result.nodes);
+    setEdges(result.edges);
+    handleFlowchartChangeRef.current(result.nodes, result.edges);
     setPendingPreview(null);
     pendingContentRef.current = null;
     clearParseCache();
-  }, [setNodes, setEdges, takeSnapshot]);
+    requestAnimationFrame(() => requestAnimationFrame(() => fitView({ padding: 0.15 })));
+  }, [setNodes, setEdges, takeSnapshot, fitView]);
 
   const memoizedEdges = useMemo(() => edges.map(e => {
     const isHovered = e.id === hoveredEdgeId;
@@ -809,17 +801,16 @@ export const FlowchartView = React.memo(({
     <Card className="w-full h-full border rounded-xl bg-muted/20 flex flex-col overflow-hidden relative py-0">
       <PrepareCommentAnchor prepare={prepareAnchor} />
 
-      {/* Top Bar */}
       {!isReadOnly && (
-        <div className="absolute top-6 inset-x-0 z-10 flex justify-center px-3 pointer-events-none">
-          <div className="flex items-center gap-1.5 p-1.5 bg-background/95 backdrop-blur-md border border-border/50 rounded-2xl shadow-2xl pointer-events-auto max-w-full overflow-x-auto no-scrollbar">
-            <JumpToNode nodes={nodes} label="Symbol" />
+        <div className={cn('absolute z-10 flex pointer-events-none', isMobile ? 'top-6 inset-x-0 justify-center px-3' : 'top-4 left-4 bottom-28 items-start')}>
+          <div role="group" aria-label="Flowchart tools" className={cn('flex gap-1.5 p-1.5 bg-background/95 backdrop-blur-md border border-border/50 rounded-2xl shadow-2xl pointer-events-auto no-scrollbar', isMobile ? 'items-center max-w-full overflow-x-auto' : 'flex-col items-center max-h-full overflow-y-auto')}>
+            <JumpToNode nodes={nodes} label="Symbol" iconOnly={!isMobile} />
             {canvasGroups.length > 0 && (
               <>
-                <div className="w-px h-6 bg-border mx-0.5" />
+                <div className={cn('bg-border shrink-0', isMobile ? 'w-px h-6 mx-0.5' : 'h-px w-6 my-0.5')} />
                 <Select value={selectedGroup ?? ''} onValueChange={(val) => { setSelectedGroup(val || null); setSelectedNodeId(null); }}>
-                  <SelectTrigger className="h-9 min-w-[130px] border-none bg-transparent hover:bg-muted px-2 text-xs font-medium cursor-pointer [&>svg]:text-muted-foreground" title="Select a group to move">
-                    <Move className="w-3.5 h-3.5 mr-1 text-muted-foreground shrink-0" />
+                  <SelectTrigger className={cn('border-none bg-transparent hover:bg-muted text-xs font-medium cursor-pointer [&>svg]:text-muted-foreground', isMobile ? 'h-9 min-w-[130px] px-2' : 'size-11 p-0')} title="Select a group to move" aria-label="Select a group to move">
+                    <Move className={cn('w-3.5 h-3.5 text-muted-foreground shrink-0', isMobile && 'mr-1')} />
                     <SelectValue placeholder="Move Group" />
                   </SelectTrigger>
                   <SelectContent className="bg-popover border-border text-popover-foreground min-w-[150px]">
@@ -831,23 +822,25 @@ export const FlowchartView = React.memo(({
               </>
             )}
             <>
-              <div className="w-px h-6 bg-border mx-0.5" />
-              <Button onClick={handleAutoLayout} variant="outline" size="sm" className="h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer">
-                <LayoutGrid className="w-3.5 h-3.5 sm:mr-1.5" />
-                <span className="hidden sm:inline">Auto Layout</span>
+              <div className={cn('bg-border shrink-0', isMobile ? 'w-px h-6 mx-0.5' : 'h-px w-6 my-0.5')} />
+              <Button onClick={handleAutoLayout} variant="outline" size={isMobile ? 'sm' : 'icon-lg'} aria-label="Auto Layout" title={isMobile ? 'Auto Layout' : undefined} className={isMobile ? 'h-9 px-3 border-border hover:bg-muted bg-muted/50 text-xs font-semibold cursor-pointer' : undefined}>
+                <LayoutGrid className={cn('w-3.5 h-3.5', isMobile && 'sm:mr-1.5')} />
+                {isMobile && <span className="hidden sm:inline">Auto Layout</span>}
               </Button>
-              <div className="w-px h-6 bg-border mx-0.5" />
-              <Button onClick={() => setIsAddingNode(true)} size="sm" className="h-9 px-3 sm:px-4 font-bold shadow-lg shadow-primary/20 cursor-pointer">
-                <Plus className="w-4 h-4 sm:mr-2" />
-                <span className="hidden sm:inline">Add Symbol</span>
+              <Button onClick={() => setIsAddingNode(true)} size={isMobile ? 'sm' : 'icon-lg'} aria-label="Add Symbol" title={isMobile ? 'Add Symbol' : undefined} className={isMobile ? 'h-9 px-3 sm:px-4 font-bold shadow-lg shadow-primary/20 cursor-pointer' : undefined}>
+                <Plus className={cn('w-4 h-4', isMobile && 'sm:mr-2')} />
+                {isMobile && <span className="hidden sm:inline">Add Symbol</span>}
               </Button>
             </>
-            <div className="w-px h-6 bg-border mx-0.5" />
-            <Button onClick={() => undo(nodesRef.current, edgesRef.current)} disabled={!canUndo} size="sm" variant="ghost" className="h-9 w-9 p-0 cursor-pointer" title="Undo">
+            <div className={cn('bg-border shrink-0', isMobile ? 'w-px h-6 mx-0.5' : 'h-px w-6 my-0.5')} />
+            <Button onClick={handleUndo} disabled={!canUndo} size={isMobile ? 'sm' : 'icon-lg'} variant="ghost" aria-label="Undo" className={isMobile ? 'h-9 w-9 p-0 cursor-pointer' : undefined} title={isMobile ? 'Undo' : undefined}>
               <Undo2 className="w-4 h-4" />
             </Button>
-            <Button onClick={() => redo(nodesRef.current, edgesRef.current)} disabled={!canRedo} size="sm" variant="ghost" className="h-9 w-9 p-0 cursor-pointer" title="Redo">
+            <Button onClick={handleRedo} disabled={!canRedo} size={isMobile ? 'sm' : 'icon-lg'} variant="ghost" aria-label="Redo" className={isMobile ? 'h-9 w-9 p-0 cursor-pointer' : undefined} title={isMobile ? 'Redo' : undefined}>
               <Redo2 className="w-4 h-4" />
+            </Button>
+            <Button onClick={() => setIsClearingCanvas(true)} disabled={nodes.length === 0 && edges.length === 0} size="icon-lg" variant="ghost" aria-label="Clear Canvas" title="Clear Canvas">
+              <Eraser className="size-4" />
             </Button>
           </div>
         </div>
@@ -866,8 +859,8 @@ export const FlowchartView = React.memo(({
           onNodeDragStart={onNodeDragStart}
           onNodeDragStop={onNodeDragStop}
           nodeTypes={nodeTypes}
-          onNodeClick={(e, node) => setSelectedNodeId(node.id)}
-          onEdgeClick={(e, edge) => setSelectedEdgeId(edge.id)}
+          onNodeClick={(e, node) => { setSelectedEdgeId(null); setSelectedNodeId(node.id); }}
+          onEdgeClick={(e, edge) => { setSelectedNodeId(null); setSelectedEdgeId(edge.id); }}
           onEdgeMouseEnter={(e, edge) => setHoveredEdgeId(edge.id)}
           onEdgeMouseLeave={() => setHoveredEdgeId(null)}
           onPaneClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); setSelectedGroup(null); }}
@@ -906,6 +899,14 @@ export const FlowchartView = React.memo(({
 
       {!isReadOnly && (
         <>
+          <ConfirmModal
+            isOpen={isClearingCanvas}
+            title="Clear Flowchart Canvas?"
+            message="Remove all symbols and connectors from this flowchart. You can restore them with Undo."
+            confirmText="Clear Canvas"
+            onConfirm={clearCanvas}
+            onCancel={() => setIsClearingCanvas(false)}
+          />
           <AddSymbolModal 
             isOpen={isAddingNode}
             onOpenChange={setIsAddingNode}
@@ -942,11 +943,12 @@ export const FlowchartView = React.memo(({
         <FlowchartPreviewModal
           nodes={pendingPreview.nodes}
           edges={pendingPreview.edges}
+          mode={pendingApplyModeRef.current}
           existingNodes={nodes}
           existingEdges={edges}
           onConfirm={handleConfirmAppend}
           onCancel={() => { setPendingPreview(null); pendingContentRef.current = null; }}
-          confirmLabel={pendingApplyModeRef.current === 'insert' ? 'Confirm Insert' : pendingApplyModeRef.current === 'replace' ? 'Confirm Replace' : 'Confirm Append'}
+          confirmLabel={pendingApplyModeRef.current === 'insert' ? 'Confirm Insert' : pendingApplyModeRef.current === 'replace' ? 'Replace All' : 'Confirm Append'}
           canvasGroups={pendingApplyModeRef.current === 'replace' ? nodes.map(n => n.data.section).filter((s): s is string => !!s).filter((s, i, arr) => arr.indexOf(s) === i) : []}
         />
       )}

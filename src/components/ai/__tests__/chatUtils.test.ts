@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { extractDBML, extractFlowchartJSON, extractSchemaContent, hasDBMLContent, hasFlowchartJSON, replyPaneTarget } from '../chatUtils';
 import { applyToErdContent } from '../actions/erdActions';
 import { previewFlowchartContent } from '../actions/flowchartActions';
+import { DEFAULT_FLOWCHART_COLOR } from '@/components/flowchart/flowchartColors';
 
 const dbml = `Table users {
   id bigint [pk]
@@ -95,6 +96,20 @@ ${flowchartJson}
     expect(byLabel.get('Kirim OTP')).toBe('rectangle');
     expect(byLabel.get('Login Berhasil')).toBe('oval');
     expect(result?.edges).toHaveLength(3);
+    expect(result?.nodes.every(node => node.data.color === DEFAULT_FLOWCHART_COLOR)).toBe(true);
+  });
+});
+
+describe('replyPaneTarget', () => {
+  const panes = new Map([['erd:a', 'erd-scope']]);
+  const lookup = (key: string) => panes.get(key);
+  it('applies a reply to the file it was written for when that file is open in the other pane', () => {
+    expect(replyPaneTarget('erd:a', 'notes:b', lookup)).toBe('erd-scope');
+  });
+  it('keeps the focused editor for its own replies, unknown origins and closed panes', () => {
+    expect(replyPaneTarget('erd:a', 'erd:a', lookup)).toBeUndefined();
+    expect(replyPaneTarget(undefined, 'notes:b', lookup)).toBeUndefined();
+    expect(replyPaneTarget('erd:closed', 'notes:b', lookup)).toBeUndefined();
   });
 });
 

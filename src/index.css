@@ -443,6 +443,10 @@ code:not(pre code) {
   --sidebar-ring: oklch(0.708 0 0);
   --edge-selected: oklch(0.65 0.18 45);
   --edge-color: oklch(0.52 0.04 250);
+  --flowchart-node-fill: oklch(0.98 0.005 250);
+  --flowchart-node-fill-muted: oklch(0.94 0.008 250);
+  --flowchart-node-border: oklch(0.46 0.015 250);
+  --flowchart-node-handle: oklch(0.46 0.015 250);
 }
 
 .dark {
@@ -483,6 +487,10 @@ code:not(pre code) {
   --sidebar-ring: oklch(0.556 0 0);
   --edge-selected: oklch(0.78 0.16 45);
   --edge-color: oklch(0.68 0.05 250);
+  --flowchart-node-fill: oklch(0.23 0.01 250);
+  --flowchart-node-fill-muted: oklch(0.29 0.012 250);
+  --flowchart-node-border: oklch(0.72 0.015 250);
+  --flowchart-node-handle: oklch(0.72 0.015 250);
 }
 
 /* Tiptap Editor Styles */

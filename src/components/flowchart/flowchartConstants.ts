@@ -1,13 +1,14 @@
 import { Edge, Node, MarkerType } from '@xyflow/react';
 import { FlowchartNodeData } from '../FlowchartNode';
+import { DEFAULT_FLOWCHART_COLOR } from './flowchartColors';
 
 export const initialNodes: Node<FlowchartNodeData>[] = [
-  { id: '1', type: 'custom', data: { label: 'Start', shape: 'oval', color: '#6366f1', section: 'Quick Start', groupId: 'grp_quickstart' }, position: { x: 271, y: 50 } },
-  { id: '2', type: 'custom', data: { label: 'Initialize App', shape: 'rectangle', color: '#8b5cf6' }, position: { x: 275, y: 200 } },
-  { id: '3', type: 'custom', data: { label: 'Database Connected?', shape: 'diamond', color: '#eab308' }, position: { x: 244, y: 350 } },
-  { id: '4', type: 'custom', data: { label: 'Fetch Data', shape: 'parallelogram', color: '#8b5cf6' }, position: { x: 65, y: 550 } },
-  { id: '5', type: 'custom', data: { label: 'Show Error', shape: 'rectangle', color: '#ef4444' }, position: { x: 480, y: 550 } },
-  { id: '6', type: 'custom', data: { label: 'End', shape: 'oval', color: '#6366f1' }, position: { x: 280, y: 750 } },
+  { id: '1', type: 'custom', data: { label: 'Start', shape: 'oval', color: DEFAULT_FLOWCHART_COLOR, section: 'Quick Start', groupId: 'grp_quickstart' }, position: { x: 271, y: 50 } },
+  { id: '2', type: 'custom', data: { label: 'Initialize App', shape: 'rectangle', color: DEFAULT_FLOWCHART_COLOR }, position: { x: 275, y: 200 } },
+  { id: '3', type: 'custom', data: { label: 'Database Connected?', shape: 'diamond', color: DEFAULT_FLOWCHART_COLOR }, position: { x: 244, y: 350 } },
+  { id: '4', type: 'custom', data: { label: 'Fetch Data', shape: 'parallelogram', color: DEFAULT_FLOWCHART_COLOR }, position: { x: 65, y: 550 } },
+  { id: '5', type: 'custom', data: { label: 'Show Error', shape: 'rectangle', color: DEFAULT_FLOWCHART_COLOR }, position: { x: 480, y: 550 } },
+  { id: '6', type: 'custom', data: { label: 'End', shape: 'oval', color: DEFAULT_FLOWCHART_COLOR }, position: { x: 280, y: 750 } },
 ];
 
 export const initialEdges: Edge[] = [
@@ -20,7 +21,7 @@ export const initialEdges: Edge[] = [
 ];
 
 export const COLOR_PALETTE = [
-  '#6366f1', '#8b5cf6', '#ef4444', '#eab308', 
+  DEFAULT_FLOWCHART_COLOR, '#6366f1', '#8b5cf6', '#ef4444', '#eab308',
   '#22c55e', '#a855f7', '#ec4899', '#0ea5e9'
 ];
 

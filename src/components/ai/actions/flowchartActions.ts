@@ -1,6 +1,9 @@
 import { Node, Edge, MarkerType } from '@xyflow/react';
 import { FlowchartNodeData, FlowchartShape } from '../../FlowchartNode';
 import { extractFlowchartJSON } from '../chatUtils';
+import { autoLayoutFlowchart } from '@/lib/autoLayoutFlowchart';
+import { DEFAULT_FLOWCHART_COLOR } from '@/components/flowchart/flowchartColors';
+import { appendFlowchart } from '@/lib/flowchart-preview';
 
 const MAX_AI_NODES = 60;
 const MAX_AI_TEXT_BYTES = 512_000;
@@ -48,21 +51,10 @@ function normalizeFlowchartShape(rawValue: unknown, labelValue: unknown): Flowch
   return 'rectangle';
 }
 
-function colorForShape(shape: FlowchartShape, labelValue: unknown): string {
-  const label = String(labelValue || '').toLowerCase();
-  if (shape === 'oval') return '#10b981';
-  if (shape === 'diamond') return '#f59e0b';
-  if (shape === 'parallelogram') return '#0ea5e9';
-  if (shape === 'database') return '#6366f1';
-  if (shape === 'document') return '#8b5cf6';
-  if (shape === 'cloud') return '#0ea5e9';
-  if (/\b(error|fail|gagal|locked|terkunci|reject|invalid)\b/.test(label)) return '#f43f5e';
-  return '#8b5cf6';
-}
-
 function parseJSON(text: string): any {
   if (text.length > MAX_AI_TEXT_BYTES) return null;
-  const jsonStr = extractFlowchartJSON(text);
+  try { return JSON.parse(text.trim()); } catch { /* AI replies may wrap JSON in Markdown. */ }
+  const jsonStr = extractFlowchartJSON(text) || text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   if (!jsonStr) return null;
   try {
     return JSON.parse(jsonStr);
@@ -103,7 +95,7 @@ function parseNodesAndEdges(aiResponse: string): { parsed: any; labelToIds: Map<
       data: {
         label: data.label || 'New Step',
         shape,
-        color: data.color || colorForShape(shape, label),
+        color: typeof data.color === 'string' && data.color.trim() ? data.color.trim() : DEFAULT_FLOWCHART_COLOR,
       },
     });
   });
@@ -457,14 +449,15 @@ function buildFlowchartLayout(
           type: 'smoothstep',
           style: { stroke: '#b1b1b7' },
           markerEnd: { type: MarkerType.ArrowClosed, color: '#b1b1b7' },
-          labelBgStyle: { fill: '#1e1e24' },
-          labelStyle: { fill: '#fff' },
+          labelBgStyle: { fill: 'var(--popover)' },
+          labelStyle: { fill: 'var(--popover-foreground)' },
         });
       }
     });
   }
 
-  return { positionedNodes, newEdges };
+  const layout = autoLayoutFlowchart(newNodes, newEdges);
+  return { positionedNodes: layout.nodes, newEdges: layout.edges };
 }
 
 export function applyToFlowchartContent(
@@ -478,17 +471,7 @@ export function applyToFlowchartContent(
   const { parsed, labelToIds, idToNode, newNodes, idSeed } = result;
   const { positionedNodes, newEdges } = buildFlowchartLayout(newNodes, parsed, labelToIds, idToNode, idSeed);
 
-  // Offset new nodes below existing ones
-  const maxY = currentNodes.reduce((max, n) => Math.max(max, n.position.y + 80), 50);
-  const offsetNodes = positionedNodes.map(n => ({
-    ...n,
-    position: { x: n.position.x + 50, y: n.position.y + maxY },
-  }));
-
-  return {
-    nodes: [...currentNodes, ...offsetNodes],
-    edges: [...currentEdges, ...newEdges],
-  };
+  return appendFlowchart({ nodes: currentNodes, edges: currentEdges }, { nodes: positionedNodes, edges: newEdges });
 }
 
 // Cache parsed result between preview and confirm to avoid double parsing
@@ -588,7 +571,7 @@ export function applyInsertBetween(
     data: {
       label: newNodeData.label || 'New Step',
       shape: newShape,
-      color: newNodeData.color || colorForShape(newShape, newNodeData.label),
+      color: typeof newNodeData.color === 'string' && newNodeData.color.trim() ? newNodeData.color.trim() : DEFAULT_FLOWCHART_COLOR,
     },
   };
 
@@ -626,10 +609,7 @@ export function applyInsertBetween(
     label: parsed.insertEdgeLabel2 || undefined,
   };
 
-  return {
-    nodes: [...currentNodes, newNode],
-    edges: [...updatedEdges, newEdge1, newEdge2],
-  };
+  return autoLayoutFlowchart([...currentNodes, newNode], [...updatedEdges, newEdge1, newEdge2]);
 }
 
 // ─── Replace all nodes/edges with AI-generated content ───────
